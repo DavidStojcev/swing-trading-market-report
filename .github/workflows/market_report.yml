@@ -1,0 +1,153 @@
+name: Automated US Market Reports
+
+on:
+  schedule:
+    # 21:00 UTC Mon-Fri ensures market has closed in both EDT (17:00 ET) and EST (16:00 ET)
+    - cron: '0 21 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      report_type:
+        description: 'Report periodicity'
+        required: true
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - weekly
+          - monthly
+      target_date:
+        description: 'Target session date (YYYY-MM-DD) or blank for latest closed session'
+        required: false
+        default: ''
+        type: string
+      tickers:
+        description: 'Optional custom watchlist tickers (comma-separated, e.g. NVDA,AAPL,TSLA)'
+        required: false
+        default: ''
+        type: string
+      send_email:
+        description: 'Send email notification via SMTP'
+        required: false
+        default: false
+        type: boolean
+      dry_run_email:
+        description: 'Generate dry-run .eml artifact without sending'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  generate-report:
+    name: Generate US Market Report
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12 Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Restore Market Data & Snapshot Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/
+            logs/
+          key: market-report-cache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            market-report-cache-${{ runner.os }}-
+
+      - name: Execute Market Report Generator
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CMD="python report.py --type ${{ inputs.report_type }}"
+            if [ -n "${{ inputs.target_date }}" ]; then
+              CMD="$CMD --date ${{ inputs.target_date }}"
+            fi
+            if [ -n "${{ inputs.tickers }}" ]; then
+              CMD="$CMD --tickers ${{ inputs.tickers }}"
+            fi
+            if [ "${{ inputs.send_email }}" = "true" ]; then
+              CMD="$CMD --email"
+            fi
+            if [ "${{ inputs.dry_run_email }}" = "true" ]; then
+              CMD="$CMD --dry-run-email"
+            fi
+            echo "Running manual dispatch: $CMD"
+            eval $CMD
+          else
+            echo "Running scheduled daily check..."
+            python report.py --type daily --if-scheduled-day --dry-run-email
+            
+            echo "Checking if weekly report is due..."
+            python report.py --type weekly --if-scheduled-day --dry-run-email
+            
+            echo "Checking if monthly report is due..."
+            python report.py --type monthly --if-scheduled-day --dry-run-email
+          fi
+
+      - name: Upload Generated Reports & EML Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-reports-${{ github.sha }}
+          path: |
+            reports/
+            logs/
+          retention-days: 30
+
+      - name: Prepare GitHub Pages Site Directory
+        id: prep-pages
+        if: always()
+        run: |
+          HTML_FILES=$(find reports -name "*.html" 2>/dev/null | sort -r || true)
+          if [ -n "$HTML_FILES" ]; then
+            mkdir -p _site
+            LATEST_REPORT=$(echo "$HTML_FILES" | head -n 1)
+            echo "Publishing latest report ($LATEST_REPORT) as index.html..."
+            cp "$LATEST_REPORT" _site/index.html
+            cp -r reports _site/
+            echo "has_pages=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No HTML reports found to publish. Skipping Pages deployment."
+            echo "has_pages=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload GitHub Pages Artifact
+        if: steps.prep-pages.outputs.has_pages == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+        continue-on-error: true
+
+      - name: Deploy to GitHub Pages
+        if: steps.prep-pages.outputs.has_pages == 'true'
+        uses: actions/deploy-pages@v4
+        continue-on-error: true

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "market-report"
+version = "1.0.0"
+description = "Automated US Market Report Generator"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Market Report Contributors"}
+]
+dependencies = [
+    "beautifulsoup4>=4.12.0",
+    "exchange-calendars>=4.5.0",
+    "matplotlib>=3.8.0",
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    "pyarrow>=15.0.0",
+    "pyyaml>=6.0.0",
+    "requests>=2.31.0",
+    "yfinance>=0.2.40",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+market-report = "report:main"
+
+[tool.setuptools]
+packages = [
+    "config",
+    "data",
+    "delivery",
+    "indicators",
+    "render",
+    "scoring",
+    "sections",
+    "storage",
+]
+py-modules = ["report", "qa_checks"]
+
+[tool.setuptools.package-data]
+config = ["config.yaml"]

@@ -1,0 +1,41 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Data, databases, and caches
+.cache/
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+*.parquet
+
+# Generated output and reports
+logs/
+*.log
+*.eml
+reports/
+
+# Environment secrets and local credentials
+.env
+.env.*
+*.env
+!.env.example
+
+# IDE & OS metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
