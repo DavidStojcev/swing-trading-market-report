@@ -44,10 +44,10 @@ Vectorized S&P 500 constituent breadth tracking % of stocks above key moving ave
 
 ![Market Breadth & Participation Matrix](./assets/preview_market_breadth.png)
 
-### Sector Performance & Relative Strength Matrix
-All 11 Select Sector SPDR ETFs ranked dynamically by period performance, benchmark relative strength against `SPY`, rank deltas, and constituent moving average distributions:
+### Sector Multi-Horizon Relative Return Heatmap
+All 11 Select Sector SPDR ETFs tracked dynamically across multiple time horizons (1-Day, 1-Week, 1-Month, 3-Month, and YTD) to identify capital rotation, momentum leadership, and tactical divergence:
 
-![Sector Relative Strength Matrix](./assets/preview_sector_matrix.png)
+![Sector Multi-Horizon Relative Return Heatmap](./assets/preview_sector_matrix.png)
 
 Generated reports are automatically saved to:
 - `reports/daily/YYYY-MM-DD.html`, `.md`, `.eml`
