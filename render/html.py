@@ -83,6 +83,98 @@ def _render_chart_html(chart: Optional[Any]) -> str:
     """
 
 
+def _render_sidebar(period: PeriodInfo, sections: List[SectionResult]) -> str:
+    """Render collapsible 5-category accordion sidebar matching Zen / Tropical Earth theme."""
+    sec_map = {s.section_num: s for s in sections}
+
+    categories = [
+        ("1. Overview & Posture", [1, 2, 3, 4], True),
+        ("2. Technicals & Breadth", [5, 6, 7, 14], False),
+        ("3. Sectors & Themes", [8, 9], False),
+        ("4. Macro & Catalysts", [10, 11, 12, 17], False),
+        ("5. Fundamentals & Outlook", [13, 15, 16, 18, 19], False),
+    ]
+
+    default_titles = {
+        1: "Executive Summary",
+        2: "What Changed: Key Deltas",
+        3: "Swing-Trade Posture",
+        4: "Index Snapshot",
+        5: "Technical Indicators",
+        6: "Market Breadth",
+        7: "Volatility (VIX)",
+        8: "Sector Performance",
+        9: "Theme Relative Strength",
+        10: "Cross-Asset Tracker",
+        11: "Fed Policy Path",
+        12: "Forward Calendar",
+        13: "Earnings Progress",
+        14: "Top Movers",
+        15: "Tactical Watchlist",
+        16: "Market Sentiment",
+        17: "Macro Events",
+        18: "Market Outlook",
+        19: "Footer & Disclaimer",
+    }
+
+    is_full_report = len(sections) >= 10
+    details_html = []
+
+    for cat_title, nums, is_open in categories:
+        links_html = []
+        for n in nums:
+            if n in sec_map:
+                t = default_titles.get(n, sec_map[n].title) if is_full_report else sec_map[n].title
+                links_html.append(f'<a href="#section-{n}" class="nav-link">{n}. {t}</a>')
+            elif is_full_report:
+                t = default_titles.get(n, f"Section {n}")
+                links_html.append(f'<a href="#section-{n}" class="nav-link">{n}. {t}</a>')
+
+        if links_html:
+            open_attr = "open" if is_open else ""
+            details_html.append(f"""
+            <details {open_attr}>
+                <summary>{cat_title}</summary>
+                {''.join(links_html)}
+            </details>
+            """)
+
+    # Render any unmapped sections in a dynamic section if present
+    mapped_nums = {n for _, nums, _ in categories for n in nums}
+    extra_links = [
+        f'<a href="#section-{s.section_num}" class="nav-link">{s.section_num}. {s.title}</a>'
+        for s in sections
+        if s.section_num not in mapped_nums
+    ]
+    if extra_links:
+        details_html.append(f"""
+        <details open>
+            <summary>Additional Sections</summary>
+            {''.join(extra_links)}
+        </details>
+        """)
+
+    return f"""
+    <aside class="sidebar" id="sidebar">
+        <div class="brand">
+            <h1>Market Briefing</h1>
+            <p>Report Date: {period.session_date}</p>
+            <div style="margin-top: 8px; display: flex; align-items: center; gap: 6px;">
+                <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--tropical-teal); display: inline-block;"></span>
+                <span style="font-size: 0.7rem; font-weight: 700; color: var(--tropical-teal);">LIVE DATA</span>
+            </div>
+        </div>
+
+        <nav class="nav-menu">
+            {''.join(details_html)}
+        </nav>
+        <div class="sidebar-footer">
+            <button class="theme-toggle-btn" onclick="toggleTheme()">🌓 Toggle Theme</button>
+        </div>
+    </aside>
+    """
+
+
 def _render_top10_ticker_strip(sections: List[SectionResult]) -> str:
     """Render compact executive ticker strip of top 10 core market metrics."""
     spx_close, spx_pct = None, None
@@ -113,7 +205,7 @@ def _render_top10_ticker_strip(sections: List[SectionResult]) -> str:
             macro_score = data.normalized_score
             macro_regime = data.verdict
             v_low = data.verdict.lower()
-            score_class = "text-green font-bold" if v_low in ("bullish", "risk-on", "constructive") else ("text-red font-bold" if v_low in ("bearish", "risk-off", "cautious") else "text-muted font-bold")
+            score_class = "text-green" if v_low in ("bullish", "risk-on", "constructive") else ("text-red" if v_low in ("bearish", "risk-off", "cautious") else "text-muted")
         elif isinstance(data, VolatilityData):
             vix_val = data.current_level
             vix_delta = data.change
@@ -139,18 +231,33 @@ def _render_top10_ticker_strip(sections: List[SectionResult]) -> str:
                     wti_price = row.current_price
                     wti_3m = row.ret_3m
 
-    # Formatting 10 micro-KPI items
+    # Formatting 4 primary hero KPI items
     spx_str = f"{spx_close:,.2f}" if spx_close is not None else "n/a"
-    spx_sub = f"{spx_pct:+.2f}%" if spx_pct is not None else "—"
-    spx_c = "text-green" if (spx_pct and spx_pct > 0) else ("text-red" if (spx_pct and spx_pct < 0) else "text-muted")
+    if spx_pct is not None:
+        spx_arrow = "▲" if spx_pct > 0 else ("▼" if spx_pct < 0 else "—")
+        spx_sign = "+" if spx_pct > 0 else ""
+        spx_sub = f"{spx_arrow} {spx_sign}{spx_pct:.2f}%"
+        spx_c = "text-green" if spx_pct > 0 else ("text-red" if spx_pct < 0 else "text-muted")
+    else:
+        spx_sub = "—"
+        spx_c = "text-muted"
 
     ndx_str = f"{ndx_close:,.2f}" if ndx_close is not None else "n/a"
-    ndx_sub = f"{ndx_pct:+.2f}%" if ndx_pct is not None else "—"
-    ndx_c = "text-green" if (ndx_pct and ndx_pct > 0) else ("text-red" if (ndx_pct and ndx_pct < 0) else "text-muted")
+    if ndx_pct is not None:
+        ndx_arrow = "▲" if ndx_pct > 0 else ("▼" if ndx_pct < 0 else "—")
+        ndx_sign = "+" if ndx_pct > 0 else ""
+        ndx_sub = f"{ndx_arrow} {ndx_sign}{ndx_pct:.2f}%"
+        ndx_c = "text-green" if ndx_pct > 0 else ("text-red" if ndx_pct < 0 else "text-muted")
+    else:
+        ndx_sub = "—"
+        ndx_c = "text-muted"
 
     score_str = f"{macro_score:+.2f}" if macro_score is not None else "n/a"
-    score_sub = macro_regime.upper()
+    score_sub = macro_regime
 
+    posture_badge_cls = "badge-red" if posture == "DEFENSIVE" else ("badge-green" if posture == "FULL" else "badge-amber")
+
+    # Formatting 6 secondary KPI items
     vix_str = f"{vix_val:.2f}" if vix_val is not None else "n/a"
     vix_sub = f"{vix_delta:+.2f} 5d" if vix_delta is not None else "—"
     vix_c = "text-red" if (vix_val and vix_val >= 20.0) else ("text-green" if (vix_val and vix_val < 16.5) else "text-muted")
@@ -174,35 +281,62 @@ def _render_top10_ticker_strip(sections: List[SectionResult]) -> str:
     wti_sub = f"{wti_3m:+.2f}% 3M" if wti_3m is not None else "WTI Oil"
     wti_c = "text-red" if (wti_3m and wti_3m > 15.0) else "text-muted"
 
-    items = [
-        ("S&P 500", spx_str, spx_sub, spx_c, "#section-7"),
-        ("Nasdaq-100", ndx_str, ndx_sub, ndx_c, "#section-7"),
-        ("Swing Posture", posture, "Apex Gate", posture_class, "#section-3"),
-        ("Macro Score", score_str, score_sub, score_class, "#section-1"),
-        ("CBOE VIX", vix_str, vix_sub, vix_c, "#section-12"),
-        ("50-DMA Breadth", br_str, br_sub, br_c, "#section-11"),
-        ("10Y Treasury", y10_str, y10_sub, "text-muted", "#section-5"),
-        ("HY OAS Spread", oas_str, oas_sub, oas_c, "#section-5"),
-        ("Vol Risk (VRP)", vrp_str, vrp_sub, vrp_c, "#section-14"),
-        ("WTI Crude", wti_str, wti_sub, wti_c, "#section-13"),
-    ]
-
-    cards_html = []
-    for lbl, val, sub, cls, link in items:
-        is_badge = "badge" in cls
-        val_display = f'<span class="badge {cls}" style="font-size: 13px; padding: 2px 8px; width: fit-content;">{val}</span>' if is_badge else f'<span class="kpi-val font-mono">{val}</span>'
-        sub_display = f'<span class="kpi-sub {cls} font-mono">{sub}</span>' if not is_badge else f'<span class="kpi-sub text-muted font-mono">{sub}</span>'
-        cards_html.append(f"""
-        <a href="{link}" class="kpi-pill" title="Jump to {lbl} section">
-            <span class="kpi-label">{lbl}</span>
-            {val_display}
-            {sub_display}
-        </a>
-        """)
-
     return f"""
     <div class="top10-ticker-strip">
-        {''.join(cards_html)}
+        <div class="kpi-grid">
+            <a href="#section-4" class="kpi-card" title="Jump to S&P 500 in Index Snapshot">
+                <span class="kpi-label">S&amp;P 500 (^GSPC)</span>
+                <span class="kpi-val font-mono">{spx_str}</span>
+                <span class="kpi-sub {spx_c} font-mono">{spx_sub}</span>
+            </a>
+            <a href="#section-4" class="kpi-card" title="Jump to Nasdaq-100 in Index Snapshot">
+                <span class="kpi-label">Nasdaq-100 (^NDX)</span>
+                <span class="kpi-val font-mono">{ndx_str}</span>
+                <span class="kpi-sub {ndx_c} font-mono">{ndx_sub}</span>
+            </a>
+            <a href="#section-1" class="kpi-card" title="Jump to Executive Summary & Macro Verdict">
+                <span class="kpi-label">Macro Score</span>
+                <span class="kpi-val font-mono">{score_str}</span>
+                <span class="kpi-sub text-muted font-mono">{score_sub}</span>
+            </a>
+            <a href="#section-3" class="kpi-card" title="Jump to Swing-Trade Posture Gate">
+                <span class="kpi-label">Swing Posture</span>
+                <span class="badge {posture_badge_cls}" style="width: fit-content; margin-top: 4px;">{posture}</span>
+                <span class="kpi-sub text-muted" style="margin-top: auto;">Apex Gate</span>
+            </a>
+        </div>
+        <div class="kpi-secondary-grid">
+            <a href="#section-7" class="kpi-secondary-card" title="Jump to Volatility (VIX)">
+                <span class="kpi-label">CBOE VIX</span>
+                <span class="kpi-val font-mono">{vix_str}</span>
+                <span class="kpi-sub {vix_c} font-mono">{vix_sub}</span>
+            </a>
+            <a href="#section-6" class="kpi-secondary-card" title="Jump to Market Breadth">
+                <span class="kpi-label">50-DMA Breadth</span>
+                <span class="kpi-val font-mono">{br_str}</span>
+                <span class="kpi-sub {br_c} font-mono">{br_sub}</span>
+            </a>
+            <a href="#section-10" class="kpi-secondary-card" title="Jump to Cross-Asset Rates">
+                <span class="kpi-label">10Y Treasury</span>
+                <span class="kpi-val font-mono">{y10_str}</span>
+                <span class="kpi-sub text-muted font-mono">{y10_sub}</span>
+            </a>
+            <a href="#section-10" class="kpi-secondary-card" title="Jump to Credit Spreads">
+                <span class="kpi-label">HY OAS Spread</span>
+                <span class="kpi-val font-mono">{oas_str}</span>
+                <span class="kpi-sub {oas_c} font-mono">{oas_sub}</span>
+            </a>
+            <a href="#section-16" class="kpi-secondary-card" title="Jump to Volatility Risk Premium">
+                <span class="kpi-label">Vol Risk (VRP)</span>
+                <span class="kpi-val font-mono">{vrp_str}</span>
+                <span class="kpi-sub {vrp_c} font-mono">{vrp_sub}</span>
+            </a>
+            <a href="#section-10" class="kpi-secondary-card" title="Jump to Commodities">
+                <span class="kpi-label">WTI Crude</span>
+                <span class="kpi-val font-mono">{wti_str}</span>
+                <span class="kpi-sub {wti_c} font-mono">{wti_sub}</span>
+            </a>
+        </div>
     </div>
     """
 
@@ -221,49 +355,56 @@ def render_html(
         clean_title = s.title.replace("&amp;", "&")
         jump_options.append(f'<option value="#section-{s.section_num}">{s.section_num}. {clean_title}</option>')
 
-    sticky_nav_html = f"""
+    rep_type_label = period.report_type.upper()
+    if period.report_type == "daily":
+        trailing_text = "Trailing 1-day session"
+    elif period.report_type == "weekly":
+        trailing_text = "Trailing 1-week"
+    elif period.report_type == "monthly":
+        trailing_text = "Trailing 1-month"
+    else:
+        trailing_text = f"Trailing {period.report_type}"
+
+    sidebar_html = _render_sidebar(period, sections)
+    top10_html = _render_top10_ticker_strip(sections)
+
+    top_bar_html = f"""
     <div class="sticky-nav-bar" id="report-nav">
-        <div class="nav-inner">
-            <div class="nav-brand">
-                <span class="nav-live-dot"></span>
-                <span>US Market Briefing &bull; {period.session_date}</span>
+        <div class="nav-inner" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+            <div class="nav-brand" style="display: flex; align-items: center; gap: 12px;">
+                <button class="toggle-sidebar-btn" onclick="toggleSidebar()" title="Toggle Navigation Sidebar">
+                    <span style="font-size: 1rem;">☰</span> Chapters
+                </button>
+                <span class="nav-brand-title" style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">US Market Briefing &bull; {period.session_date}</span>
             </div>
-            <div class="nav-controls">
+            <div class="nav-controls" style="display: flex; align-items: center; gap: 8px;">
                 <select id="jump-select" class="nav-select" onchange="if(this.value){{location.href=this.value; this.value='';}}" title="Jump to section">
                     <option value="">Jump to section...</option>
                     {''.join(jump_options)}
                 </select>
-                <button class="nav-btn" onclick="toggleTheme()" title="Toggle Dark/Light Mode">🌓 Theme</button>
+                <button class="nav-btn" onclick="toggleTheme()" title="Toggle Theme">🌓 Theme</button>
                 <a href="#top" class="nav-btn" title="Back to top">↑ Top</a>
             </div>
         </div>
     </div>
     """
 
+    header_html = f"""
+    <header class="report-header" id="top" style="margin-bottom: 28px;">
+        <span class="badge badge-primary" style="margin-bottom: 12px; font-size: 0.75rem; letter-spacing: 0.05em;">{rep_type_label} INSTITUTIONAL REPORT</span>
+        <h1 style="font-size: 2.2rem; font-weight: 700; line-height: 1.1; margin-bottom: 8px; letter-spacing: -0.02em; color: var(--text-main);">US Market Dynamics</h1>
+        <p style="font-size: 0.95rem; color: var(--text-muted); max-width: 650px; margin: 0; line-height: 1.5;">
+            Comprehensive analysis of equities, macro conditions, and systemic risk. {trailing_text} to {period.session_date}.
+        </p>
+        {f'<div class="alert alert-info" style="margin-top: 12px;">ℹ️ <strong>Partial Period:</strong> {period.notes}</div>' if period.is_partial else ''}
+    </header>
+    """
+
     body_html: List[str] = []
 
-    # Compact Executive Ticker Strip (Top 10 Metrics)
-    top10_html = _render_top10_ticker_strip(sections)
-
-    # Header Card
-    body_html.append(f"""
-    <header class="card report-header" id="top">
-        <div class="header-top">
-            <div>
-                <span class="badge badge-primary">{period.report_type.upper()} REPORT</span>
-                <h1 class="report-title">{rep_title}</h1>
-                <p class="subtitle">As of <strong>{period.session_date}</strong> &bull; Period: {period.current_start} to {period.current_end} &bull; US/Eastern</p>
-            </div>
-            <button id="theme-toggle" class="btn-theme" onclick="toggleTheme()" title="Toggle Theme">🌓 Theme</button>
-        </div>
-        {f'<div class="alert alert-info">ℹ️ <strong>Partial Period:</strong> {period.notes}</div>' if period.is_partial else ''}
-    </header>
-    {top10_html}
-    """)
-
     for sec in sections:
-        body_html.append(f'<section class="card section-card" id="section-{sec.section_num}">')
-        body_html.append(f'<div class="section-header"><h2 class="section-title"><span class="section-num">{sec.section_num}</span> {sec.title}</h2></div>')
+        body_html.append(f'<section class="section-card card" id="section-{sec.section_num}">')
+        body_html.append(f'<div class="section-header"><span class="section-num">{sec.section_num}</span><h2 class="section-title">{sec.title}</h2></div>')
 
         if not sec.is_available:
             err = sec.error_message or "Data source temporarily unavailable."
@@ -274,16 +415,24 @@ def render_html(
         if isinstance(sec.data, ExecutiveSummaryData):
             d: ExecutiveSummaryData = sec.data
             v_low = d.verdict.lower()
-            v_class = "badge-bullish" if v_low in ("bullish", "risk-on", "constructive") else ("badge-bearish" if v_low in ("bearish", "risk-off", "cautious") else "badge-neutral")
+            if v_low in ("bullish", "risk-on", "constructive"):
+                v_class = "badge-green"
+                banner_border = "var(--tropical-teal)"
+            elif v_low in ("bearish", "risk-off", "cautious"):
+                v_class = "badge-red"
+                banner_border = "var(--rosy-copper)"
+            else:
+                v_class = "badge-amber"
+                banner_border = "var(--amber-honey)"
             
             regime_callout_html = ""
             if d.forward_outlook:
                 reg_name = d.regime_summary or "Active Macro Regime"
                 regime_callout_html = f"""
-                <div class="regime-callout-card" style="margin-top: 16px; padding: 14px 18px; border-radius: 8px; background: rgba(59, 130, 246, 0.08); border-left: 4px solid var(--primary);">
+                <div class="regime-callout-card" style="margin-top: 16px; padding: 14px 18px; border-radius: 8px; background: var(--bg-card-subtle); border-left: 4px solid var(--tropical-teal);">
                     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
                         <span style="font-size: 1.1rem;">🧭</span>
-                        <span style="font-weight: 700; font-size: 0.82rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--primary);">Macro Regime &amp; Forward Implications: {reg_name}</span>
+                        <span style="font-weight: 700; font-size: 0.82rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--tropical-teal);">Macro Regime &amp; Forward Implications: {reg_name}</span>
                     </div>
                     <div style="font-size: 0.90rem; line-height: 1.5; color: var(--text-main);">{d.forward_outlook}</div>
                 </div>
@@ -294,28 +443,30 @@ def render_html(
             alignment_callout_html = ""
             if getattr(d, "alignment_note", ""):
                 alignment_callout_html = f"""
-                <div class="alignment-callout" style="margin-top: 10px; padding: 10px 14px; background: rgba(59, 130, 246, 0.08); border-left: 4px solid var(--accent); border-radius: 6px; font-size: 13px; color: var(--text-main);">
-                    ⚖️ <strong>Regime vs. Posture Alignment:</strong> {d.alignment_note}
+                <div class="alert alert-info" style="margin-top: 14px; margin-bottom: 14px; display: flex; align-items: flex-start; gap: 10px;">
+                    <span style="font-size: 1.1rem; line-height: 1;">⚖️</span>
+                    <div>
+                        <strong style="display: block; margin-bottom: 2px;">Regime vs. Posture Alignment:</strong> 
+                        {d.alignment_note}
+                    </div>
                 </div>
                 """
 
             body_html.append(f"""
-            <div class="verdict-banner">
+            <div class="verdict-banner" style="border-left-color: {banner_border};">
                 <div class="verdict-box">
-                    <span class="verdict-label">MARKET REGIME VERDICT</span>
+                    <span class="verdict-label">Market Regime Verdict</span>
                     <span class="verdict-badge {v_class}">{d.verdict.upper()}</span>
                 </div>
-                <div class="score-box">
-                    <span class="score-label">TREND SCORE</span>
+                <div class="score-box" style="margin-left: auto; text-align: right;">
+                    <span class="score-label">Trend Score</span>
                     <span class="score-val font-mono">{d.normalized_score:+.2f}</span>
-                    <span class="score-sub">Scale: -1.0 to +1.0</span>
                     {conf_badge}
                 </div>
             </div>
             {alignment_callout_html}
             {regime_callout_html}
-            <div class="summary-reasons">
-                <h3 class="reasons-heading">Core Rationale &amp; Market Posture</h3>
+            <div class="summary-reasons" style="margin-top: 16px;">
                 <ul class="reasons-list">
                     {''.join(f'<li>{r}</li>' for r in d.reasons)}
                 </ul>
@@ -336,23 +487,24 @@ def render_html(
             w_data: WhatChangedData = sec.data
             delta_rows = []
             for d in w_data.deltas:
-                val_class = "text-green font-bold" if d.valence == "positive" else ("text-red font-bold" if d.valence == "negative" else "text-muted")
+                val_class = "text-green font-bold" if d.valence == "positive" else ("text-red font-bold" if d.valence == "negative" else "text-muted font-bold")
+                delta_sign = "+" if (d.delta_str and not d.delta_str.startswith(("+", "-", "—"))) else ""
+                formatted_delta = f"{delta_sign}{d.delta_str}" if d.delta_str != "—" else "—"
+                sub_detail = f'<div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">{d.detail}</div>' if d.detail else ""
                 delta_rows.append(f"""
                 <tr>
-                    <td><strong>{d.name}</strong></td>
-                    <td class="text-center font-mono font-bold">{d.current_val}</td>
-                    <td class="text-center font-mono text-muted">{d.prior_val}</td>
-                    <td class="text-center font-mono {val_class}"><strong>{d.delta_str}</strong></td>
-                    <td style="font-size: 13px;">{d.detail}</td>
+                    <td><strong>{d.name}</strong>{sub_detail}</td>
+                    <td class="text-right font-mono font-bold">{d.current_val}</td>
+                    <td class="text-right font-mono {val_class}">{formatted_delta}</td>
                 </tr>
                 """)
 
             risk_html = ""
             if w_data.single_biggest_risk:
                 risk_html = f"""
-                <div class="alert alert-warning" style="margin-top: 14px; border-left: 4px solid var(--red); background: rgba(239, 68, 68, 0.08);">
-                    <div style="font-weight: 700; font-size: 0.82rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--red); margin-bottom: 4px;">⚠️ Single Biggest Forward Risk</div>
-                    <div style="font-size: 0.90rem; line-height: 1.5; color: var(--text-main);">{w_data.single_biggest_risk}</div>
+                <div class="alert alert-warning" style="margin-top: 14px;">
+                    <strong style="display: block; margin-bottom: 2px;">⚠️ Single Biggest Forward Risk:</strong>
+                    {w_data.single_biggest_risk}
                 </div>
                 """
 
@@ -361,11 +513,9 @@ def render_html(
                 <table class="report-table">
                     <thead>
                         <tr>
-                            <th>Macro &amp; Market Metric</th>
-                            <th class="text-center">Current Level / Status</th>
-                            <th class="text-center">Prior Level</th>
-                            <th class="text-center">Period &Delta;</th>
-                            <th>Strategic Context &amp; Shift Diagnostic</th>
+                            <th>Metric</th>
+                            <th class="text-right">Current Status</th>
+                            <th class="text-right">Period &Delta;</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -385,59 +535,73 @@ def render_html(
             qqq_20_pill = '<span class="badge badge-green">PASS</span>' if sg.qqq_20ema_pass else '<span class="badge badge-red">FAIL</span>'
             qqq_50_pill = '<span class="badge badge-green">PASS</span>' if sg.qqq_50dma_pass else '<span class="badge badge-red">FAIL</span>'
 
+            if sg.posture == "FULL":
+                posture_badge_cls = "badge-green"
+                banner_border = "var(--tropical-teal)"
+            elif sg.posture in ("REDUCED", "SELECTIVE"):
+                posture_badge_cls = "badge-amber"
+                banner_border = "var(--amber-honey)"
+            else:
+                posture_badge_cls = "badge-red"
+                banner_border = "var(--rosy-copper)"
+
             monthly_gate_note = """
             <div class="alert alert-info" style="margin-top: 12px; margin-bottom: 12px;">
                 💡 <strong>Monthly Strategic Allocation Note:</strong> The Swing-Trade Exposure Gate provides tactical weekly guardrails. For long-term multi-asset allocators, macro regime signals and credit spreads (Section 17) take precedence over short-term swing stops.
             </div>
             """ if period.report_type == "monthly" else ""
 
+            spy_20_c = "text-green font-bold" if sg.spy_20ema_pass else "text-red font-bold"
+            spy_50_c = "text-green font-bold" if sg.spy_50dma_pass else "text-red font-bold"
+            qqq_20_c = "text-green font-bold" if sg.qqq_20ema_pass else "text-red font-bold"
+            qqq_50_c = "text-green font-bold" if sg.qqq_50dma_pass else "text-red font-bold"
+
             body_html.append(f"""
-            <div class="verdict-banner" style="border-left: 5px solid {('var(--green)' if sg.posture == 'FULL' else ('var(--primary)' if sg.posture == 'REDUCED' else ('var(--amber)' if sg.posture == 'SELECTIVE' else 'var(--red)')))}">
+            <div class="verdict-banner" style="border-left-color: {banner_border};">
                 <div class="verdict-box">
-                    <span class="verdict-label">SWING EXPOSURE POSTURE</span>
-                    <span class="verdict-badge {sg.posture_badge_class}">{sg.posture}</span>
+                    <span class="verdict-label">Execution Posture</span>
+                    <span class="verdict-badge {posture_badge_cls}">{sg.posture}</span>
                 </div>
-                <div style="flex: 1; padding-left: 12px;">
-                    <div style="font-size: 13px; font-weight: 700; color: var(--text-main);">{sg.triggered_rule}</div>
-                    <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">{sg.execution_guidance}</div>
+                <div style="flex: 1; padding-left: 16px;">
+                    <div style="font-weight: 500; font-size: 0.85rem;">{sg.triggered_rule}</div>
+                    {f'<div style="font-size: 0.78rem; color: rgba(255,255,255,0.7); margin-top: 4px;">{sg.execution_guidance}</div>' if sg.execution_guidance else ''}
                 </div>
             </div>
             {monthly_gate_note}
 
-            <h3 class="sub-title">Benchmark Technical Gates &amp; Moving Average Crosses</h3>
             <div class="table-container">
                 <table class="report-table">
                     <thead>
                         <tr>
-                            <th>Benchmark Index ETF</th>
+                            <th>Index ETF</th>
                             <th class="text-right">Price</th>
-                            <th class="text-right">20-Day EMA</th>
-                            <th class="text-right">Dist to 20-EMA</th>
+                            <th class="text-right">Dist 20-EMA</th>
                             <th class="text-center">20-EMA Gate</th>
-                            <th class="text-right">50-Day DMA</th>
-                            <th class="text-right">Dist to 50-DMA</th>
+                            <th class="text-right">Dist 50-DMA</th>
                             <th class="text-center">50-DMA Gate</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td><strong>S&amp;P 500 ETF (SPY)</strong></td>
+                            <td class="flex-cell">
+                                <span class="ticker-circle">S</span>
+                                <strong>SPY</strong>
+                            </td>
                             <td class="text-right font-mono">${sg.spy_price:,.2f}</td>
-                            <td class="text-right font-mono">${sg.spy_20ema:,.2f}</td>
-                            <td class="text-right">{_fmt_pct(sg.spy_20ema_dist_pct)}</td>
+                            <td class="text-right font-mono {spy_20_c}">{_fmt_pct(sg.spy_20ema_dist_pct)}</td>
                             <td class="text-center">{spy_20_pill}</td>
-                            <td class="text-right font-mono">${sg.spy_50dma:,.2f}</td>
-                            <td class="text-right">{_fmt_pct(sg.spy_50dma_dist_pct)}</td>
+                            <td class="text-right font-mono {spy_50_c}">{_fmt_pct(sg.spy_50dma_dist_pct)}</td>
                             <td class="text-center">{spy_50_pill}</td>
                         </tr>
                         <tr>
-                            <td><strong>Nasdaq-100 ETF (QQQ)</strong></td>
+                            <td class="flex-cell">
+                                <span class="ticker-circle">Q</span>
+                                <strong>QQQ</strong>
+                            </td>
                             <td class="text-right font-mono">${sg.qqq_price:,.2f}</td>
-                            <td class="text-right font-mono">${sg.qqq_20ema:,.2f}</td>
-                            <td class="text-right">{_fmt_pct(sg.qqq_20ema_dist_pct)}</td>
+                            <td class="text-right font-mono {qqq_20_c}">{_fmt_pct(sg.qqq_20ema_dist_pct)}</td>
                             <td class="text-center">{qqq_20_pill}</td>
-                            <td class="text-right font-mono">${sg.qqq_50dma:,.2f}</td>
-                            <td class="text-right">{_fmt_pct(sg.qqq_50dma_dist_pct)}</td>
+                            <td class="text-right font-mono {qqq_50_c}">{_fmt_pct(sg.qqq_50dma_dist_pct)}</td>
                             <td class="text-center">{qqq_50_pill}</td>
                         </tr>
                     </tbody>
@@ -1309,6 +1473,8 @@ def render_html(
             """)
 
             if charts:
+                if charts.get("sector_timeframe_heatmap"):
+                    body_html.append(_render_chart_html(charts.get("sector_timeframe_heatmap")))
                 body_html.append(_render_chart_html(charts.get("sector_performance")))
 
         # Section: Theme & Industry Relative Strength
@@ -1626,6 +1792,8 @@ def render_html(
             <p class="table-caption" style="margin-top: 14px;"><em>*Note: Market breadth calculations use the current S&P 500 constituent roster (subject to survivorship bias for historical comparisons).</em></p>
             """)
             if charts:
+                if charts.get("sector_breadth_heatmap"):
+                    body_html.append(_render_chart_html(charts.get("sector_breadth_heatmap")))
                 body_html.append(_render_chart_html(charts.get("breadth_history")))
 
             body_html.append("""
@@ -2424,18 +2592,32 @@ def render_html(
                 </div>
                 """
 
+            v_low = cd.verdict.lower()
+            if v_low in ("bullish", "risk-on", "constructive"):
+                v_class = "badge-green"
+                banner_border = "var(--tropical-teal)"
+            elif v_low in ("bearish", "risk-off", "cautious"):
+                v_class = "badge-red"
+                banner_border = "var(--rosy-copper)"
+            else:
+                v_class = "badge-amber"
+                banner_border = "var(--amber-honey)"
+
+            conf_html = f'<div style="font-size: 0.82rem; color: var(--text-muted); font-family: var(--font-mono); margin: -8px 0 20px 0;"><strong>Confidence:</strong> {cd.scorecard.confidence}</div>' if cd.scorecard and cd.scorecard.confidence else ''
+
             body_html.append(f"""
-            <div class="conclusion-verdict-bar">
-                <div>
-                    <span class="verdict-label">FINAL REGIME OUTLOOK</span>
+            <div class="verdict-banner" style="border-left-color: {banner_border}; margin-bottom: 14px;">
+                <div class="verdict-box">
+                    <span class="verdict-label">Final Regime Outlook</span>
                     <span class="verdict-badge {v_class}">{cd.verdict.upper()}</span>
                 </div>
-                <div class="score-box">
-                    <span class="score-label">NORMALIZED SCORE</span>
+                <div class="score-box" style="margin-left: auto; text-align: right;">
+                    <span class="score-label">Normalized Score</span>
                     <span class="score-val font-mono">{cd.normalized_score:+.2f}</span>
-                    {conf_label}
+                    <span class="score-sub font-mono" style="color: rgba(255,255,255,0.65); font-size: 11px; margin-left: 8px;">(Scale: -1.0 to +1.0)</span>
                 </div>
             </div>
+            {conf_html}
 
             <h3 class="sub-title">Macro &amp; Micro Trend Scorecard by Category</h3>
             <div class="table-container">
@@ -2478,6 +2660,9 @@ def render_html(
             <div class="grid-2">{''.join(levels_html)}</div>
             {forward_strat_html}
             """)
+
+            if charts and charts.get("seasonality_heatmap"):
+                body_html.append(_render_chart_html(charts.get("seasonality_heatmap")))
 
         # Section: Footer
         elif isinstance(sec.data, dict) and "disclaimer" in sec.data:
@@ -2543,134 +2728,318 @@ def render_html(
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{rep_title} - {period.session_date}</title>
     <style>
-        :root {{
-            --bg-body: #f8fafc;
-            --bg-card: #ffffff;
-            --bg-card-subtle: #f1f5f9;
-            --bg-nav: rgba(255, 255, 255, 0.88);
-            --border: #e2e8f0;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --primary: #2563eb;
-            --green: #059669;
-            --red: #dc2626;
-            --amber: #d97706;
-            --badge-bullish-bg: #d1fae5;
-            --badge-bullish-text: #065f46;
-            --badge-bearish-bg: #fee2e2;
-            --badge-bearish-text: #991b1b;
-            --badge-neutral-bg: #fef3c7;
-            --badge-neutral-text: #92400e;
+        :root, body.theme-zen {{
+            /* Tropical Earth Palette */
+            --amber-honey: #eca400;
+            --rosy-copper: #db504a;
+            --dark-slate-grey: #2c514c;
+            --tropical-teal: #56a3a6;
+            --deep-walnut: #56351e;
+
+            /* Mappings */
+            --bg-page: #FDFBF7;
+            --bg-sidebar: var(--dark-slate-grey);
+            --bg-card: #FFFFFF;
+            --bg-card-subtle: rgba(44, 81, 76, 0.05);
+            --bg-nav: rgba(253, 251, 247, 0.94);
+            
+            --text-main: var(--deep-walnut);
+            --text-muted: rgba(86, 53, 30, 0.65);
+            --text-sidebar: #E0EAE9;
+            
+            --primary: var(--dark-slate-grey); 
+            --border: rgba(86, 53, 30, 0.15);
+            
+            --accent-green-bg: rgba(86, 163, 166, 0.15);
+            --accent-green-txt: #2c514c;
+            --accent-red-bg: rgba(219, 80, 74, 0.12);
+            --accent-red-txt: #b33934;
+            --accent-amber-bg: rgba(236, 164, 0, 0.15);
+            --accent-amber-txt: #8f5d00;
+            
+            --green: #2c514c;
+            --red: #db504a;
+            --amber: #eca400;
+            --accent: var(--tropical-teal);
+            
+            --badge-bullish-bg: rgba(86, 163, 166, 0.15);
+            --badge-bullish-text: #2c514c;
+            --badge-bearish-bg: rgba(219, 80, 74, 0.12);
+            --badge-bearish-text: #b33934;
+            --badge-neutral-bg: rgba(236, 164, 0, 0.15);
+            --badge-neutral-text: #8f5d00;
+            
+            --shadow-card: 0 4px 12px rgba(86, 53, 30, 0.04);
+            --radius-card: 12px;
         }}
+
+        html.dark, body.dark {{
+            --bg-page: #152422;
+            --bg-sidebar: #101c1a;
+            --bg-card: #1c302d;
+            --bg-card-subtle: rgba(86, 163, 166, 0.08);
+            --bg-nav: rgba(21, 36, 34, 0.94);
+            
+            --text-main: #FDFBF7;
+            --text-muted: rgba(253, 251, 247, 0.65);
+            --text-sidebar: #E0EAE9;
+            
+            --primary: var(--tropical-teal);
+            --border: rgba(253, 251, 247, 0.12);
+            
+            --accent-green-bg: rgba(86, 163, 166, 0.25);
+            --accent-green-txt: #7cd3d5;
+            --accent-red-bg: rgba(219, 80, 74, 0.25);
+            --accent-red-txt: #ff7d78;
+            --accent-amber-bg: rgba(236, 164, 0, 0.25);
+            --accent-amber-txt: #ffc44d;
+            
+            --green: #7cd3d5;
+            --red: #ff7d78;
+            --amber: #ffc44d;
+            --accent: var(--tropical-teal);
+            
+            --badge-bullish-bg: rgba(86, 163, 166, 0.25);
+            --badge-bullish-text: #7cd3d5;
+            --badge-bearish-bg: rgba(219, 80, 74, 0.25);
+            --badge-bearish-text: #ff7d78;
+            --badge-neutral-bg: rgba(236, 164, 0, 0.25);
+            --badge-neutral-text: #ffc44d;
+            
+            --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.25);
+        }}
+
         @media (prefers-color-scheme: dark) {{
-            :root {{
-                --bg-body: #0b0f19;
-                --bg-card: #131b2e;
-                --bg-card-subtle: #1c2640;
-                --bg-nav: rgba(19, 27, 46, 0.88);
-                --border: #263352;
-                --text-main: #f1f5f9;
-                --text-muted: #94a3b8;
-                --primary: #3b82f6;
-                --green: #10b981;
-                --red: #ef4444;
-                --amber: #f59e0b;
-                --badge-bullish-bg: #064e3b;
-                --badge-bullish-text: #a7f3d0;
-                --badge-bearish-bg: #7f1d1d;
-                --badge-bearish-text: #fecaca;
-                --badge-neutral-bg: #78350f;
-                --badge-neutral-text: #fde68a;
+            :root:not(.light) {{
+                --bg-page: #152422;
+                --bg-sidebar: #101c1a;
+                --bg-card: #1c302d;
+                --bg-card-subtle: rgba(86, 163, 166, 0.08);
+                --bg-nav: rgba(21, 36, 34, 0.94);
+                
+                --text-main: #FDFBF7;
+                --text-muted: rgba(253, 251, 247, 0.65);
+                --text-sidebar: #E0EAE9;
+                
+                --primary: var(--tropical-teal);
+                --border: rgba(253, 251, 247, 0.12);
+                
+                --accent-green-bg: rgba(86, 163, 166, 0.25);
+                --accent-green-txt: #7cd3d5;
+                --accent-red-bg: rgba(219, 80, 74, 0.25);
+                --accent-red-txt: #ff7d78;
+                --accent-amber-bg: rgba(236, 164, 0, 0.25);
+                --accent-amber-txt: #ffc44d;
+                
+                --green: #7cd3d5;
+                --red: #ff7d78;
+                --amber: #ffc44d;
+                --accent: var(--tropical-teal);
+                
+                --badge-bullish-bg: rgba(86, 163, 166, 0.25);
+                --badge-bullish-text: #7cd3d5;
+                --badge-bearish-bg: rgba(219, 80, 74, 0.25);
+                --badge-bearish-text: #ff7d78;
+                --badge-neutral-bg: rgba(236, 164, 0, 0.25);
+                --badge-neutral-text: #ffc44d;
+                
+                --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.25);
             }}
         }}
-        html.dark {{
-            --bg-body: #0b0f19;
-            --bg-card: #131b2e;
-            --bg-card-subtle: #1c2640;
-            --bg-nav: rgba(19, 27, 46, 0.88);
-            --border: #263352;
-            --text-main: #f1f5f9;
-            --text-muted: #94a3b8;
-            --primary: #3b82f6;
-            --green: #10b981;
-            --red: #ef4444;
-            --amber: #f59e0b;
-            --badge-bullish-bg: #064e3b;
-            --badge-bullish-text: #a7f3d0;
-            --badge-bearish-bg: #7f1d1d;
-            --badge-bearish-text: #fecaca;
-            --badge-neutral-bg: #78350f;
-            --badge-neutral-text: #fde68a;
-        }}
-        html.light {{
-            --bg-body: #f8fafc;
-            --bg-card: #ffffff;
-            --bg-card-subtle: #f1f5f9;
-            --bg-nav: rgba(255, 255, 255, 0.88);
-            --border: #e2e8f0;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --primary: #2563eb;
-            --green: #059669;
-            --red: #dc2626;
-            --amber: #d97706;
-            --badge-bullish-bg: #d1fae5;
-            --badge-bullish-text: #065f46;
-            --badge-bearish-bg: #fee2e2;
-            --badge-bearish-text: #991b1b;
-            --badge-neutral-bg: #fef3c7;
-            --badge-neutral-text: #92400e;
-        }}
+
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-        html {{ scroll-behavior: smooth; }}
+        html {{ scroll-behavior: smooth; font-size: 14px; }}
+        
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-body);
+            font-family: 'Founders Grotesk', 'Helvetica Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg-page);
             color: var(--text-main);
             line-height: 1.5;
-            padding: 0 0 24px 0;
+            display: flex;
+            min-height: 100vh;
+            overflow-x: hidden;
         }}
+
+        .font-mono {{
+            font-family: 'Gt American Mono', 'JetBrains Mono', SFMono-Regular, Menlo, Monaco, Consolas, ui-monospace, monospace;
+            letter-spacing: -0.02em;
+        }}
+        .font-bold {{ font-weight: 700; }}
+
+        /* --- Sidebar --- */
+        .sidebar {{
+            width: 265px;
+            background-color: var(--bg-sidebar);
+            color: var(--text-sidebar);
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+            display: flex;
+            flex-direction: column;
+            padding: 22px 18px;
+            border-right: 1px solid var(--border);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 100;
+        }}
+        
+        .sidebar.collapsed {{
+            transform: translateX(-100%);
+        }}
+
+        .brand {{ margin-bottom: 18px; }}
+        .brand h1 {{
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+            line-height: 1.2;
+            margin-bottom: 4px;
+            color: #FFFFFF;
+        }}
+        .brand p {{
+            font-size: 0.82rem;
+            color: var(--tropical-teal);
+            font-weight: 500;
+        }}
+
+        .nav-menu {{
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            flex-grow: 1;
+            margin-bottom: 16px;
+            padding-right: 4px;
+        }}
+        
+        .nav-menu::-webkit-scrollbar {{ width: 4px; }}
+        .nav-menu::-webkit-scrollbar-thumb {{ background: rgba(255,255,255,0.2); border-radius: 4px; }}
+
+        details > summary {{
+            list-style: none;
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: var(--amber-honey);
+            padding: 9px 10px;
+            cursor: pointer;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background-color 0.2s;
+            margin-top: 4px;
+        }}
+        details > summary::-webkit-details-marker {{ display: none; }}
+        details > summary:hover {{ background-color: rgba(255, 255, 255, 0.05); }}
+        details > summary::after {{ content: '+'; font-size: 1.15em; line-height: 0.5; color: var(--tropical-teal); }}
+        details[open] > summary::after {{ content: '−'; }}
+
+        .nav-link {{
+            text-decoration: none;
+            color: rgba(255,255,255,0.88);
+            font-size: 0.86rem;
+            font-weight: 400;
+            padding: 6px 10px 6px 14px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            line-height: 1.3;
+            margin-bottom: 3px;
+        }}
+        .nav-link:hover {{
+            background-color: rgba(255,255,255,0.1);
+            color: #FFFFFF;
+            transform: translateX(3px);
+        }}
+
+        .sidebar-footer {{
+            padding-top: 16px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }}
+
+        .theme-toggle-btn {{
+            width: 100%;
+            padding: 9px;
+            background: var(--amber-honey);
+            color: var(--deep-walnut);
+            border: none;
+            border-radius: 8px;
+            font-family: inherit;
+            font-weight: 700;
+            font-size: 0.88rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 6px;
+        }}
+        .theme-toggle-btn:hover {{
+            background-color: #f5b324;
+        }}
+
+        /* --- Main Content --- */
+        .main-content {{
+            margin-left: 265px;
+            flex-grow: 1;
+            padding: 24px 40px 48px 40px;
+            max-width: 1300px;
+            transition: margin-left 0.3s cubic-bezier(0.16, 1, 0.3, 1), max-width 0.3s;
+        }}
+        .main-content.expanded {{
+            margin-left: 0;
+            max-width: 100%;
+        }}
+
+        .top-bar {{
+            display: flex;
+            align-items: center;
+            margin-bottom: 24px;
+        }}
+
         .sticky-nav-bar {{
             position: sticky;
             top: 0;
-            z-index: 999;
+            z-index: 90;
             background: var(--bg-nav);
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
             border-bottom: 1px solid var(--border);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-            width: 100%;
+            padding: 10px 0;
         }}
         .nav-inner {{
-            max-width: 1180px;
-            margin: 0 auto;
-            padding: 10px 24px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            gap: 16px;
+            width: 100%;
         }}
         .nav-brand {{
             display: flex;
             align-items: center;
-            gap: 8px;
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--text-main);
-            white-space: nowrap;
+            gap: 12px;
         }}
-        .nav-live-dot {{
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--green);
-            display: inline-block;
-            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+        .toggle-sidebar-btn {{
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--primary);
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 700;
+            font-family: inherit;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }}
+        .toggle-sidebar-btn:hover {{
+            border-color: var(--tropical-teal);
         }}
         .nav-controls {{
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }}
         .nav-select {{
             background: var(--bg-card);
@@ -2678,11 +3047,11 @@ def render_html(
             border: 1px solid var(--border);
             border-radius: 6px;
             padding: 6px 12px;
-            font-size: 12px;
+            font-size: 0.75rem;
             font-weight: 600;
             cursor: pointer;
-            max-width: 320px;
             outline: none;
+            max-width: 280px;
         }}
         .nav-btn {{
             background: var(--bg-card);
@@ -2690,66 +3059,262 @@ def render_html(
             color: var(--text-main);
             border-radius: 6px;
             padding: 6px 12px;
-            font-size: 12px;
+            font-size: 0.75rem;
             font-weight: 600;
             cursor: pointer;
             text-decoration: none;
             display: inline-flex;
             align-items: center;
-            justify-content: center;
         }}
         .nav-btn:hover, .nav-select:hover {{
-            border-color: var(--primary);
+            border-color: var(--tropical-teal);
         }}
-        .section-card {{
+
+        @media (max-width: 1024px) {{
+            .sidebar {{ transform: translateX(-100%); }}
+            .sidebar.mobile-open {{ transform: translateX(0); }}
+            .main-content {{ margin-left: 0; padding: 16px; }}
+            .main-content.expanded {{ margin-left: 0; }}
+        }}
+
+        /* --- Cards & Headers --- */
+        .section-card, .card {{
+            background: var(--bg-card);
+            border-radius: var(--radius-card);
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow-card);
+            border: 1px solid var(--border);
             scroll-margin-top: 64px;
         }}
 
-        .top10-ticker-strip {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
-            gap: 10px;
-            margin-top: 14px;
-            margin-bottom: 6px;
+        .section-header {{
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 12px;
         }}
-        .kpi-pill {{
+        .section-num {{
+            background: var(--bg-sidebar);
+            color: #FFF;
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+        }}
+        .section-title {{
+            font-size: 1.25rem;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+            color: var(--text-main);
+            margin: 0;
+        }}
+
+        .badge {{
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+        }}
+        .badge-primary {{ background: var(--bg-sidebar); color: #FFF; }}
+        .badge-green, .badge-bullish {{ background: var(--accent-green-bg); color: var(--accent-green-txt); }}
+        .badge-red, .badge-bearish {{ background: var(--accent-red-bg); color: var(--accent-red-txt); }}
+        .badge-amber, .badge-neutral {{ background: var(--accent-amber-bg); color: var(--accent-amber-txt); }}
+
+        .text-green {{ color: var(--accent-green-txt); }}
+        .text-red {{ color: var(--accent-red-txt); }}
+        .text-muted {{ color: var(--text-muted); }}
+        .text-right {{ text-align: right; }}
+        .text-center {{ text-align: center; }}
+
+        /* --- KPI Grid --- */
+        .top10-ticker-strip {{ margin-bottom: 24px; }}
+        .kpi-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }}
+        .kpi-card {{
             background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 10px 12px;
+            border-radius: var(--radius-card);
+            padding: 16px;
+            box-shadow: var(--shadow-card);
             display: flex;
             flex-direction: column;
             gap: 4px;
+            border: 1px solid var(--border);
             text-decoration: none;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
-            transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+            color: inherit;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
         }}
-        .kpi-pill:hover {{
+        .kpi-card:hover {{
             transform: translateY(-2px);
-            border-color: var(--primary);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+            box-shadow: 0 6px 16px rgba(86, 53, 30, 0.08);
         }}
         .kpi-label {{
-            font-size: 10px;
+            font-size: 0.7rem;
             font-weight: 700;
             letter-spacing: 0.05em;
             color: var(--text-muted);
             text-transform: uppercase;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
         }}
         .kpi-val {{
-            font-size: 16px;
-            font-weight: 800;
-            line-height: 1.2;
+            font-size: 1.4rem;
+            font-weight: 600;
             color: var(--text-main);
         }}
         .kpi-sub {{
-            font-size: 11px;
+            font-size: 0.75rem;
             font-weight: 600;
-            line-height: 1.2;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }}
+
+        .kpi-secondary-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 10px;
+        }}
+        .kpi-secondary-card {{
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            border: 1px solid var(--border);
+            text-decoration: none;
+            color: inherit;
+            transition: background-color 0.15s ease;
+        }}
+        .kpi-secondary-card:hover {{
+            background: var(--bg-card-subtle);
+        }}
+        .kpi-secondary-card .kpi-label {{ font-size: 0.65rem; }}
+        .kpi-secondary-card .kpi-val {{ font-size: 1rem; }}
+        .kpi-secondary-card .kpi-sub {{ font-size: 0.7rem; }}
+
+        /* --- Tables --- */
+        .table-container {{
+            overflow-x: auto;
+            margin-top: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }}
+        .report-table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            text-align: left;
+        }}
+        .report-table th {{
+            background: var(--bg-card-subtle);
+            color: var(--text-main);
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+        }}
+        .report-table td {{
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-main);
+        }}
+        .report-table tbody tr {{ transition: background-color 0.1s ease; }}
+        .report-table tbody tr:nth-child(even) {{ background-color: var(--bg-card-subtle); }}
+        .report-table tbody tr:hover {{ background-color: rgba(236, 164, 0, 0.08); }}
+        .report-table tr:last-child td {{ border-bottom: none; }}
+        .compact-table td, .compact-table th {{ padding: 6px 8px; font-size: 0.8rem; }}
+
+        .ticker-circle {{
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--bg-sidebar);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: #FFF;
+            margin-right: 8px;
+        }}
+        .flex-cell {{ display: flex; align-items: center; }}
+
+        /* --- Verdict Banners --- */
+        .verdict-banner {{
+            display: flex;
+            gap: 24px;
+            background: var(--bg-sidebar);
+            padding: 16px 24px;
+            border-radius: 12px;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            border-left: 4px solid var(--amber-honey);
+            color: #FFF;
+        }}
+        .verdict-box {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }}
+        .score-box {{
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            flex-wrap: wrap;
+        }}
+        .verdict-label, .score-label {{
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: rgba(255,255,255,0.7);
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }}
+        .verdict-badge {{
+            font-size: 0.95rem;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-weight: 600;
+        }}
+        .verdict-banner .badge-amber, .verdict-banner .badge-neutral {{
+            background: var(--amber-honey);
+            color: #1e332f;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }}
+        .verdict-banner .badge-red, .verdict-banner .badge-bearish {{
+            background: var(--rosy-copper);
+            color: #FFFFFF;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }}
+        .verdict-banner .badge-green, .verdict-banner .badge-bullish {{
+            background: var(--tropical-teal);
+            color: #FFFFFF;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }}
+        .score-val {{
+            font-size: 1.6rem;
+            font-weight: 600;
+            line-height: 1;
+        }}
+
+        .reasons-list {{ padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }}
+        .reasons-heading, .sub-title {{ font-size: 1rem; font-weight: 700; margin: 16px 0 10px 0; color: var(--text-main); }}
 
         .methodology-note {{
             margin: 16px 0;
@@ -2757,7 +3322,7 @@ def render_html(
             background: var(--bg-card-subtle);
             border: 1px dashed var(--border);
             border-radius: 8px;
-            font-size: 13px;
+            font-size: 0.8rem;
         }}
         .methodology-note summary {{
             cursor: pointer;
@@ -2766,24 +3331,25 @@ def render_html(
             user-select: none;
             outline: none;
         }}
-        .methodology-note summary:hover {{
-            text-decoration: underline;
-        }}
+        .methodology-note summary:hover {{ text-decoration: underline; }}
         .methodology-content {{
             margin-top: 10px;
             color: var(--text-muted);
             line-height: 1.6;
         }}
-        .methodology-content strong {{
-            color: var(--text-main);
-        }}
+        .methodology-content strong {{ color: var(--text-main); }}
+
+        .alert {{ padding: 12px 16px; border-radius: 8px; font-size: 0.85rem; margin: 12px 0; line-height: 1.5; }}
+        .alert-info {{ background: var(--bg-card-subtle); border-left: 4px solid var(--tropical-teal); color: var(--text-main); }}
+        .alert-warning {{ background: rgba(236, 164, 0, 0.12); color: var(--text-main); border-left: 4px solid var(--amber-honey); }}
+        .alert-danger {{ background: rgba(219, 80, 74, 0.12); color: var(--text-main); border-left: 4px solid var(--rosy-copper); }}
 
         .chart-svg-container {{
             margin: 20px 0;
             text-align: center;
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: var(--radius-card);
             padding: 16px 20px;
         }}
         .chart-svg-wrapper {{
@@ -2797,107 +3363,16 @@ def render_html(
             height: auto;
             display: block;
         }}
-        .container {{ max-width: 1180px; margin: 24px auto; padding: 0 24px; display: flex; flex-direction: column; gap: 24px; }}
-        .card {{
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        }}
-        .header-top {{ display: flex; justify-content: space-between; align-items: flex-start; }}
-        .report-title {{ font-size: 28px; font-weight: 800; margin-top: 8px; }}
-        .subtitle {{ color: var(--text-muted); font-size: 14px; margin-top: 4px; }}
-        .btn-theme {{
-            background: var(--bg-card-subtle);
-            border: 1px solid var(--border);
-            color: var(--text-main);
-            padding: 8px 14px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 13px;
-        }}
-        .badge {{
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 9999px;
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.05em;
-        }}
-        .badge-primary {{ background: var(--primary); color: white; }}
-        .badge-bullish {{ background: var(--badge-bullish-bg); color: var(--badge-bullish-text); }}
-        .badge-bearish {{ background: var(--badge-bearish-bg); color: var(--badge-bearish-text); }}
-        .badge-neutral {{ background: var(--badge-neutral-bg); color: var(--badge-neutral-text); }}
-        .badge-green {{ background: var(--badge-bullish-bg); color: var(--badge-bullish-text); }}
-        .badge-red {{ background: var(--badge-bearish-bg); color: var(--badge-bearish-text); }}
-        .badge-muted {{ background: var(--bg-card-subtle); color: var(--text-muted); }}
-        
-        .section-header {{ margin-bottom: 18px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }}
-        .section-title {{ font-size: 20px; font-weight: 700; display: flex; align-items: center; gap: 10px; }}
-        .section-num {{
-            background: var(--primary);
-            color: white;
-            width: 26px;
-            height: 26px;
-            border-radius: 50%;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 13px;
-        }}
-        
-        .verdict-banner, .conclusion-verdict-bar {{
-            display: flex;
-            gap: 20px;
-            background: var(--bg-card-subtle);
-            padding: 18px 24px;
-            border-radius: 10px;
-            align-items: center;
-            margin-bottom: 20px;
-        }}
-        .verdict-box, .score-box {{ display: flex; flex-direction: column; gap: 4px; }}
-        .verdict-label, .score-label {{ font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.06em; }}
-        .verdict-badge {{ font-size: 18px; padding: 6px 16px; border-radius: 8px; font-weight: 800; }}
-        .score-val {{ font-size: 24px; font-weight: 800; }}
-        .score-sub {{ font-size: 11px; color: var(--text-muted); }}
+        .macro-chart-box {{ background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }}
+        .macro-chart-svg {{ width: 100%; height: auto; display: block; }}
+        .macro-charts-stack {{ display: flex; flex-direction: column; gap: 24px; margin: 20px 0 28px 0; }}
 
-        .reasons-list {{ padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }}
-        .reasons-heading, .sub-title {{ font-size: 16px; font-weight: 700; margin: 16px 0 10px 0; }}
-
-        .table-container {{ overflow-x: auto; margin-top: 10px; }}
-        .report-table {{
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-            text-align: left;
-        }}
-        .report-table th {{
-            background: var(--bg-card-subtle);
-            color: var(--text-muted);
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            padding: 10px 12px;
-            border-bottom: 1px solid var(--border);
-        }}
-        .report-table td {{
-            padding: 10px 12px;
-            border-bottom: 1px solid var(--border);
-        }}
-        .report-table tr:last-child td {{ border-bottom: none; }}
-        .compact-table td, .compact-table th {{ padding: 6px 8px; font-size: 13px; }}
-        
-        .text-right {{ text-align: right; }}
-        .text-center {{ text-align: center; }}
-        .text-green {{ color: var(--green); }}
-        .text-red {{ color: var(--red); }}
-        .text-muted {{ color: var(--text-muted); }}
-        .font-mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
-        .font-bold {{ font-weight: 700; }}
-        .ticker-sub {{ font-size: 12px; color: var(--text-muted); }}
-        .table-caption {{ font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }}
+        .vix-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }}
+        .vix-metric {{ background: var(--bg-card-subtle); padding: 14px; border-radius: 8px; display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); }}
+        .vix-label {{ font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }}
+        .vix-val {{ font-size: 1.3rem; font-weight: 700; }}
+        .vix-sub {{ font-size: 0.75rem; color: var(--text-muted); }}
+        .vix-desc {{ font-size: 0.75rem; margin-top: 4px; color: var(--text-muted); }}
 
         .grid-2 {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-top: 10px; }}
         .tech-card {{
@@ -2905,68 +3380,73 @@ def render_html(
             border-radius: 10px;
             padding: 18px;
             margin-bottom: 16px;
+            border: 1px solid var(--border);
         }}
         .tech-header {{ display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }}
-        .tech-price {{ font-size: 20px; font-weight: 800; }}
+        .tech-price {{ font-size: 1.25rem; font-weight: 700; }}
         .metric-group {{ display: flex; flex-direction: column; gap: 6px; }}
-        .metric-title {{ font-size: 13px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }}
-        .metric-row {{ display: flex; justify-content: space-between; font-size: 13px; }}
+        .metric-title {{ font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }}
+        .metric-row {{ display: flex; justify-content: space-between; font-size: 0.8rem; }}
 
-        .vix-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }}
-        .vix-metric {{ background: var(--bg-card-subtle); padding: 16px; border-radius: 8px; display: flex; flex-direction: column; gap: 4px; }}
-        .vix-label {{ font-size: 11px; font-weight: 700; color: var(--text-muted); }}
-        .vix-val {{ font-size: 22px; font-weight: 800; }}
-        .vix-sub {{ font-size: 12px; color: var(--text-muted); }}
-        .vix-desc {{ font-size: 12px; margin-top: 6px; color: var(--text-muted); }}
-
-        .mover-period-title {{ font-size: 16px; font-weight: 700; margin: 20px 0 10px 0; }}
+        .mover-period-title {{ font-size: 1rem; font-weight: 700; margin: 20px 0 10px 0; color: var(--text-main); }}
         .movers-split {{ display: flex; flex-direction: column; gap: 20px; }}
-        .mover-table-box {{ background: var(--bg-card-subtle); padding: 16px 18px; border-radius: 10px; overflow-x: auto; }}
-        .mover-subheading {{ font-size: 14px; font-weight: 700; margin-bottom: 8px; }}
+        .mover-table-box {{ background: var(--bg-card-subtle); padding: 16px 18px; border-radius: 10px; overflow-x: auto; border: 1px solid var(--border); }}
+        .mover-subheading {{ font-size: 0.85rem; font-weight: 700; margin-bottom: 8px; }}
 
         .drivers-grid {{ margin: 16px 0; }}
         .driver-card {{ padding: 16px; border-radius: 10px; }}
-        .driver-card ul {{ padding-left: 20px; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }}
-        .driver-bullish {{ background: var(--badge-bullish-bg); color: var(--badge-bullish-text); }}
-        .driver-bearish {{ background: var(--badge-bearish-bg); color: var(--badge-bearish-text); }}
+        .driver-card ul {{ padding-left: 20px; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }}
+        .driver-bullish {{ background: var(--accent-green-bg); color: var(--accent-green-txt); }}
+        .driver-bearish {{ background: var(--accent-red-bg); color: var(--accent-red-txt); }}
 
-        .levels-box {{ background: var(--bg-card-subtle); padding: 14px; border-radius: 8px; }}
-        .levels-box h4 {{ font-size: 14px; font-weight: 700; margin-bottom: 8px; }}
+        .levels-box {{ background: var(--bg-card-subtle); padding: 14px; border-radius: 8px; border: 1px solid var(--border); }}
+        .levels-box h4 {{ font-size: 0.85rem; font-weight: 700; margin-bottom: 8px; }}
 
-        .macro-charts-stack {{ display: flex; flex-direction: column; gap: 24px; margin: 20px 0 28px 0; }}
-        .macro-chart-box {{ background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }}
-        .macro-chart-svg {{ width: 100%; height: auto; display: block; }}
-        
-        .alert {{ padding: 12px 16px; border-radius: 8px; font-size: 13px; margin: 12px 0; }}
-        .alert-info {{ background: var(--bg-card-subtle); border-left: 4px solid var(--primary); }}
-        .alert-warning {{ background: #fffbeb; color: #92400e; border-left: 4px solid var(--amber); }}
-        
-        .report-footer {{ border-top: 1px solid var(--border); padding-top: 16px; text-align: center; color: var(--text-muted); font-size: 13px; }}
-        .footer-sub {{ font-size: 11px; margin-top: 4px; }}
+        .report-footer {{ border-top: 1px solid var(--border); padding-top: 16px; text-align: center; color: var(--text-muted); font-size: 0.8rem; }}
+        .footer-sub {{ font-size: 0.7rem; margin-top: 4px; }}
+        .table-caption {{ font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px; }}
     </style>
 </head>
-<body>
-    {sticky_nav_html}
-    <div class="container">
+<body class="theme-zen">
+    {sidebar_html}
+    <main class="main-content" id="main-content">
+        {top_bar_html}
+        {header_html}
+        {top10_html}
         {''.join(body_html)}
-    </div>
+    </main>
     <script>
+        function toggleSidebar() {{
+            const sidebar = document.getElementById('sidebar');
+            const main = document.getElementById('main-content');
+            if (window.innerWidth > 1024) {{
+                sidebar.classList.toggle('collapsed');
+                main.classList.toggle('expanded');
+            }} else {{
+                sidebar.classList.toggle('mobile-open');
+            }}
+        }}
         function toggleTheme() {{
             const html = document.documentElement;
-            if (html.classList.contains('dark')) {{
+            const body = document.body;
+            if (html.classList.contains('dark') || body.classList.contains('dark')) {{
                 html.classList.remove('dark');
-                html.classList.add('light');
+                body.classList.remove('dark');
+                body.classList.add('theme-zen');
                 localStorage.setItem('theme', 'light');
             }} else {{
-                html.classList.remove('light');
                 html.classList.add('dark');
+                body.classList.add('dark');
+                body.classList.remove('theme-zen');
                 localStorage.setItem('theme', 'dark');
             }}
         }}
         (function() {{
             const saved = localStorage.getItem('theme');
-            if (saved) {{
-                document.documentElement.classList.add(saved);
+            if (saved === 'dark') {{
+                document.documentElement.classList.add('dark');
+                document.body.classList.add('dark');
+                document.body.classList.remove('theme-zen');
             }}
         }})();
     </script>

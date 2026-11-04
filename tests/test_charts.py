@@ -12,7 +12,10 @@ from render.charts import (
     generate_index_technicals_chart,
     generate_movers_chart,
     generate_rates_curve_chart,
+    generate_seasonality_heatmap,
+    generate_sector_breadth_heatmap,
     generate_sector_performance_chart,
+    generate_sector_timeframe_heatmap,
     generate_vix_chart,
 )
 from sections.movers import MoverItem
@@ -180,3 +183,61 @@ def test_legend_entries_have_plotted_lines():
         valid_pts = len(y[~np.isnan(y)])
         assert valid_pts >= 2, f"Legend entry '{text.get_text()}' has no plotted line ({valid_pts} points)"
     plt.close(fig)
+
+
+def test_sector_timeframe_heatmap(tmp_path):
+    """Test 11 SPDR Sector Multi-Horizon Heatmap generation."""
+    dates = pd.date_range(end="2026-10-30", periods=100, freq="B")
+    core_bars = {}
+    for sym in ["XLE", "XLF", "XLU", "XLI", "XLB", "XLV", "XLP", "XLY", "XLRE", "XLK", "XLC"]:
+        core_bars[sym] = pd.DataFrame({"Close": np.linspace(50.0, 60.0, 100)}, index=dates)
+
+    out_file = tmp_path / "sec_hm.png"
+    chart = generate_sector_timeframe_heatmap(
+        core_bars=core_bars,
+        sector_rows=[],
+        as_of_date="2026-10-30",
+        output_path=out_file,
+    )
+    assert chart.is_available is True
+    assert out_file.exists()
+    assert len(chart.base64_data) > 500
+
+
+def test_sector_breadth_heatmap(tmp_path):
+    """Test Sector Breadth Participation Heatmap generation."""
+    dates = pd.date_range(end="2026-10-30", periods=100, freq="B")
+    equity_bars = {
+        "AAPL": pd.DataFrame({"Close": np.linspace(150.0, 180.0, 100)}, index=dates),
+        "MSFT": pd.DataFrame({"Close": np.linspace(300.0, 350.0, 100)}, index=dates),
+        "XOM": pd.DataFrame({"Close": np.linspace(100.0, 110.0, 100)}, index=dates),
+        "JPM": pd.DataFrame({"Close": np.linspace(140.0, 160.0, 100)}, index=dates),
+    }
+
+    out_file = tmp_path / "breadth_hm.png"
+    chart = generate_sector_breadth_heatmap(
+        equity_bars=equity_bars,
+        as_of_date="2026-10-30",
+        output_path=out_file,
+    )
+    assert chart.is_available is True
+    assert out_file.exists()
+    assert len(chart.base64_data) > 500
+
+
+def test_seasonality_heatmap(tmp_path):
+    """Test S&P 500 Seasonality Heatmap generation."""
+    dates = pd.date_range(end="2026-10-30", periods=300, freq="B")
+    spx_df = pd.DataFrame({"Close": np.linspace(4000.0, 5800.0, 300)}, index=dates)
+
+    out_file = tmp_path / "seas_hm.png"
+    chart = generate_seasonality_heatmap(
+        spx_df=spx_df,
+        as_of_date="2026-10-30",
+        lookback_years=5,
+        output_path=out_file,
+    )
+    assert chart.is_available is True
+    assert out_file.exists()
+    assert len(chart.base64_data) > 500
+

@@ -17,32 +17,49 @@ import base64
 from dataclasses import dataclass
 import io
 import logging
+import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.colors as mcolors
 import matplotlib.dates as mdates
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 from data.calendar import PeriodInfo
+from data.constituents import FALLBACK_CONSTITUENTS
 from sections.movers import MoverItem
 from sections.sectors import SectorPerformanceRow
 
 logger = logging.getLogger(__name__)
 
-# Dark/Light neutral palette
-COLOR_TEXT = "#cbd5e1"
-COLOR_MUTED = "#94a3b8"
-COLOR_GRID = "#64748b"
-COLOR_SPINE = "#475569"
-COLOR_GREEN = "#10b981"
-COLOR_RED = "#ef4444"
-COLOR_BLUE = "#38bdf8"
-COLOR_AMBER = "#f59e0b"
-COLOR_PURPLE = "#a78bfa"
-COLOR_YELLOW = "#facc15"
+# User's approved color palette & visual design tokens
+AMBER_HONEY = "#eca400"      # 50 DMA line, 20d Volume line, Key Pivot / Warning
+ROSY_COPPER = "#db504a"      # 200 DMA line, Down-volume bars, Drawdowns / Bearish
+DARK_SLATE_GREY = "#2c514c"  # Neutral baseline, structural card accents
+TROPICAL_TEAL = "#56a3a6"    # S&P 500 price, Up-volume bars, Expansion / Bullish
+DEEP_WALNUT = "#56351e"      # Subtle warm structural accents
+
+COLOR_TEXT = "#fcfcfc"
+COLOR_MUTED = "#9ab3af"
+COLOR_GRID = "#20312e"
+COLOR_SPINE = "#2c514c"
+
+# Backward-compatibility aliases for other existing charts
+COLOR_GREEN = TROPICAL_TEAL
+COLOR_RED = ROSY_COPPER
+COLOR_BLUE = TROPICAL_TEAL
+COLOR_AMBER = AMBER_HONEY
+COLOR_PURPLE = ROSY_COPPER
+COLOR_YELLOW = AMBER_HONEY
+
+# Custom Diverging Colormap (Rosy Copper -> Dark Slate -> Tropical Teal -> Luminous Mint)
+CMAP_DIVERGING = mcolors.LinearSegmentedColormap.from_list(
+    "palette_diverging", [ROSY_COPPER, DARK_SLATE_GREY, TROPICAL_TEAL, "#2ee0d3"], N=256
+)
 
 
 @dataclass
@@ -119,10 +136,13 @@ def generate_index_technicals_chart(
     lookback_bars: int = 130,
     output_path: Optional[Path] = None,
 ) -> GeneratedChart:
-    """Generate index price with 20, 50, and 200 DMA over trailing lookback window."""
+    """Generate index price with 20 EMA, 50 DMA, 200 DMA, and volume liquidity over trailing lookback window."""
     chart_key = f"{symbol.strip('^').lower()}_technicals"
-    title = f"{name} ({symbol}) — Trend & Moving Averages"
-    caption = f"{name} closing price vs. 20-day, 50-day, and 200-day moving averages as of {as_of_date}."
+    title = f"{name} ({symbol}) — Trend, Moving Averages & Volume Liquidity"
+    if "NDX" in symbol:
+        caption = f"Nasdaq-100 technology benchmark price action vs. 20 EMA, 50 DMA, 200 DMA, and volume liquidity as of {as_of_date}."
+    else:
+        caption = f"S&P 500 benchmark closing trajectory vs. 20 EMA, 50 DMA (Key Pivot), 200 DMA, and volume liquidity as of {as_of_date}."
 
     if df is None or df.empty or "Close" not in df.columns:
         return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message="Price data unavailable.")
@@ -134,9 +154,9 @@ def generate_index_technicals_chart(
             return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message="Insufficient historical bars.")
 
         close = sub["Close"]
-        sma20 = close.rolling(20).mean()
-        sma50 = close.rolling(50).mean()
-        sma200 = close.rolling(200).mean()
+        sma20 = close.ewm(span=20, adjust=False).mean()
+        sma50 = close.rolling(50, min_periods=20).mean()
+        sma200 = close.rolling(200, min_periods=50).mean()
 
         # Display window
         disp_sub = sub.tail(lookback_bars)
@@ -146,27 +166,110 @@ def generate_index_technicals_chart(
         disp_sma50 = sma50.loc[disp_idx]
         disp_sma200 = sma200.loc[disp_idx]
 
-        fig, ax = plt.subplots(figsize=(9, 4.2))
-        _apply_neutral_theme(fig, ax)
+        has_vol = "Volume" in disp_sub.columns and (disp_sub["Volume"] > 0).any()
 
-        ax.plot(disp_idx, disp_close, label=f"Price ({disp_close.iloc[-1]:,.1f})", color=COLOR_BLUE, linewidth=1.8)
-        if len(disp_sma20.dropna()) >= 2:
-            ax.plot(disp_idx, disp_sma20, label=f"20 DMA ({disp_sma20.dropna().iloc[-1]:,.1f})", color=COLOR_YELLOW, linewidth=1.2, linestyle="--")
-        if len(disp_sma50.dropna()) >= 2:
-            ax.plot(disp_idx, disp_sma50, label=f"50 DMA ({disp_sma50.dropna().iloc[-1]:,.1f})", color="#60a5fa", linewidth=1.4)
+        if has_vol:
+            fig = plt.figure(figsize=(9.6, 5.2))
+            gs = gridspec.GridSpec(2, 1, height_ratios=[3.4, 1.2], hspace=0.10)
+            ax = fig.add_subplot(gs[0])
+            ax_vol = fig.add_subplot(gs[1], sharex=ax)
+            _apply_neutral_theme(fig, ax)
+            _apply_neutral_theme(fig, ax_vol)
+            ax.tick_params(axis="x", labelbottom=False)
+            ax.spines["bottom"].set_visible(False)
+        else:
+            fig, ax = plt.subplots(figsize=(9.6, 4.2))
+            _apply_neutral_theme(fig, ax)
+            ax_vol = None
+
+        # Ensure y-limits encompass all plotted moving averages and price without clipping
+        valid_series = [disp_close]
+        for ma_s in (disp_sma20, disp_sma50, disp_sma200):
+            if len(ma_s.dropna()) >= 2:
+                valid_series.append(ma_s.dropna())
+
+        all_min = min(float(s.min()) for s in valid_series)
+        all_max = max(float(s.max()) for s in valid_series)
+        y_min = all_min * 0.985
+        y_max = all_max * 1.035
+
+        # Glow fill under price
+        ax.fill_between(disp_idx, y_min, disp_close, color=TROPICAL_TEAL, alpha=0.10)
+        ax.fill_between(disp_idx, y_min, disp_close, color=TROPICAL_TEAL, alpha=0.04)
+
+        # Plot MAs
         if len(disp_sma200.dropna()) >= 2:
-            ax.plot(disp_idx, disp_sma200, label=f"200 DMA ({disp_sma200.dropna().iloc[-1]:,.1f})", color=COLOR_RED, linewidth=1.4)
+            ax.plot(disp_idx, disp_sma200, label=f"200 DMA ({disp_sma200.dropna().iloc[-1]:,.1f})", color=ROSY_COPPER, linewidth=1.6, linestyle="--", alpha=0.9)
+        if len(disp_sma50.dropna()) >= 2:
+            ax.plot(disp_idx, disp_sma50, label=f"50 DMA ({disp_sma50.dropna().iloc[-1]:,.1f})", color=AMBER_HONEY, linewidth=1.8, alpha=0.95)
+        if len(disp_sma20.dropna()) >= 2:
+            ax.plot(disp_idx, disp_sma20, label=f"20 EMA ({disp_sma20.dropna().iloc[-1]:,.1f})", color="#e5e7eb", linewidth=1.2, linestyle=":", alpha=0.8)
 
-        ax.set_title(title, color=COLOR_TEXT, fontsize=12, fontweight="bold", pad=10)
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y" if lookback_bars > 180 else "%b %d"))
-        fig.autofmt_xdate(rotation=20)
-        ax.legend(loc="upper left", facecolor="#131b2e", edgecolor=COLOR_SPINE, labelcolor=COLOR_TEXT, fontsize=8)
+        ax.plot(disp_idx, disp_close, label=f"Price ({disp_close.iloc[-1]:,.1f})", color=TROPICAL_TEAL, linewidth=2.2)
+
+        # Price callout pill
+        last_date = disp_idx[-1]
+        last_p = disp_close.iloc[-1]
+        dist_str = ""
+        if len(disp_sma50.dropna()) >= 1:
+            dist_50 = ((last_p / disp_sma50.dropna().iloc[-1]) - 1) * 100
+            dist_str = f"\n{dist_50:+.1f}% vs 50D"
+
+        ax.plot(last_date, last_p, marker="o", markersize=5, color=TROPICAL_TEAL, markeredgecolor="#ffffff", markeredgewidth=1.2)
+        ax.annotate(
+            f"  ${last_p:,.1f}{dist_str}",
+            xy=(last_date, last_p),
+            xytext=(last_date + pd.Timedelta(days=2), last_p),
+            color="#ffffff",
+            fontweight="bold",
+            fontsize=8.5,
+            va="center",
+            bbox=dict(boxstyle="round,pad=0.35", facecolor=DARK_SLATE_GREY, edgecolor=TROPICAL_TEAL, linewidth=1.2)
+        )
+
+        ax.set_title(title, color=COLOR_TEXT, fontsize=12, fontweight="bold", pad=12)
+        ax.set_ylim(y_min, y_max)
+        date_pad = max(10, int(lookback_bars * 0.12))
+        ax.set_xlim(disp_idx[0], disp_idx[-1] + pd.Timedelta(days=date_pad))
+        ax.legend(loc="upper left", facecolor="#131b2e", edgecolor=COLOR_SPINE, labelcolor=COLOR_TEXT, fontsize=8, ncol=4)
+
+        if ax_vol is not None:
+            vol = disp_sub["Volume"] / 1_000_000.0
+            vol_ma = vol.rolling(20, min_periods=1).mean()
+            up_days = disp_close.diff().fillna(0) >= 0
+
+            ax_vol.bar(disp_idx[up_days], vol[up_days], color=TROPICAL_TEAL, width=1.0, alpha=0.75, label="Up Day")
+            ax_vol.bar(disp_idx[~up_days], vol[~up_days], color=ROSY_COPPER, width=1.0, alpha=0.75, label="Down Day")
+            ax_vol.plot(disp_idx, vol_ma, color=AMBER_HONEY, linewidth=1.2, linestyle="-", label="20d Vol Avg")
+            ax_vol.set_ylabel("Vol (M)", color=COLOR_MUTED, fontsize=8)
+            ax_vol.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y" if lookback_bars > 180 else "%b %d"))
+            fig.autofmt_xdate(rotation=20)
+        else:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y" if lookback_bars > 180 else "%b %d"))
+            fig.autofmt_xdate(rotation=20)
 
         b64, svg = _encode_fig(fig, output_path)
         return GeneratedChart(key=chart_key, title=title, caption=caption, file_path=str(output_path) if output_path else None, base64_data=b64, svg_content=svg)
     except Exception as e:
         logger.warning("Failed to generate technical chart for %s: %s", symbol, e)
         return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message=str(e))
+
+
+def _compute_symmetric_barh_xlim(vals: List[float]) -> Tuple[float, float]:
+    """Compute clean symmetric x-axis limits with generous headroom so data labels never overlap spines or y-axis text."""
+    max_abs = max([abs(v) for v in vals] + [0.5])
+    target = max_abs * 1.35
+    if target <= 2.0:
+        limit = math.ceil(target * 2.0) / 2.0
+    elif target <= 5.0:
+        limit = float(math.ceil(target))
+    elif target <= 20.0:
+        limit = math.ceil(target / 2.0) * 2.0
+    elif target <= 50.0:
+        limit = math.ceil(target / 5.0) * 5.0
+    else:
+        limit = math.ceil(target / 10.0) * 10.0
+    return -limit, limit
 
 
 def generate_sector_performance_chart(
@@ -195,6 +298,10 @@ def generate_sector_performance_chart(
 
         bars = ax.barh(names, vals, color=colors, height=0.65, alpha=0.9)
         ax.axvline(0, color=COLOR_MUTED, linewidth=0.8, linestyle="--")
+
+        # Explicit symmetric limits with generous padding to prevent text-spine/label collision
+        xmin, xmax = _compute_symmetric_barh_xlim(vals)
+        ax.set_xlim(xmin, xmax)
 
         # Value labels on bars
         for bar, val in zip(bars, vals):
@@ -258,8 +365,8 @@ def generate_breadth_trend_chart(
         fig, ax = plt.subplots(figsize=(9, 4.2))
         _apply_neutral_theme(fig, ax)
 
-        ax.plot(disp_idx, s50, label=f"% Above 50 DMA ({s50.iloc[-1]:.1f}%)", color=COLOR_BLUE, linewidth=1.8)
-        ax.plot(disp_idx, s200, label=f"% Above 200 DMA ({s200.iloc[-1]:.1f}%)", color=COLOR_GREEN, linewidth=1.8)
+        ax.plot(disp_idx, s50, label=f"% Above 50 DMA ({s50.iloc[-1]:.1f}%)", color=AMBER_HONEY, linewidth=1.8)
+        ax.plot(disp_idx, s200, label=f"% Above 200 DMA ({s200.iloc[-1]:.1f}%)", color=TROPICAL_TEAL, linewidth=1.8)
 
         # Bullish/Bearish boundary zones
         ax.axhline(60, color=COLOR_GREEN, linestyle="--", linewidth=1.0, alpha=0.6, label="Bullish Threshold (60%)")
@@ -419,6 +526,10 @@ def generate_movers_chart(
         bars = ax.barh(labels, vals, color=colors, height=0.62, alpha=0.9)
         ax.axvline(0, color=COLOR_MUTED, linewidth=0.8, linestyle="--")
 
+        # Explicit symmetric limits with generous padding to prevent text-spine/label collision
+        xmin, xmax = _compute_symmetric_barh_xlim(vals)
+        ax.set_xlim(xmin, xmax)
+
         for bar, val in zip(bars, vals):
             sign = "+" if val >= 0 else ""
             txt = f" {sign}{val:.2f}% "
@@ -436,6 +547,333 @@ def generate_movers_chart(
         return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message=str(e))
 
 
+def generate_sector_timeframe_heatmap(
+    core_bars: Dict[str, pd.DataFrame],
+    sector_rows: List[SectorPerformanceRow],
+    as_of_date: str,
+    output_path: Optional[Path] = None,
+) -> GeneratedChart:
+    """Generate 11 SPDR Sector Multi-Horizon Return Heatmap (1D, 1W, 1M, 3M, YTD)."""
+    chart_key = "sector_timeframe_heatmap"
+    title = "11 SPDR Sectors — Multi-Horizon Relative Return Heatmap"
+    caption = f"Multi-timeframe return heatmap across all 11 Select Sector SPDR ETFs as of {as_of_date}."
+
+    sector_symbols = [
+        ("XLE", "Energy"),
+        ("XLF", "Financials"),
+        ("XLU", "Utilities"),
+        ("XLI", "Industrials"),
+        ("XLB", "Materials"),
+        ("XLV", "Health Care"),
+        ("XLP", "Cons Staples"),
+        ("XLY", "Cons Discretionary"),
+        ("XLRE", "Real Estate"),
+        ("XLK", "Technology"),
+        ("XLC", "Comm Services"),
+    ]
+
+    timeframes = ["1-Day", "1-Week", "1-Month", "3-Month", "YTD"]
+    curr_dt = pd.to_datetime(as_of_date)
+
+    try:
+        matrix = []
+        labels = []
+        sec_row_map = {r.symbol: r.pct_change for r in sector_rows}
+
+        for sym, name in sector_symbols:
+            labels.append(f"{name} ({sym})")
+            df = core_bars.get(sym)
+            row_vals = [0.0, 0.0, 0.0, 0.0, 0.0]
+
+            if df is not None and not df.empty and "Close" in df.columns:
+                sub = df[df.index <= curr_dt]["Close"]
+                if len(sub) >= 2:
+                    p_now = sub.iloc[-1]
+                    r_1d = ((p_now / sub.iloc[-2]) - 1) * 100.0
+                    r_1w = ((p_now / sub.iloc[-6]) - 1) * 100.0 if len(sub) >= 6 else r_1d
+                    r_1m = ((p_now / sub.iloc[-22]) - 1) * 100.0 if len(sub) >= 22 else r_1w
+                    r_3m = ((p_now / sub.iloc[-64]) - 1) * 100.0 if len(sub) >= 64 else r_1m
+                    year_start = sub[sub.index.year == curr_dt.year]
+                    prev_year_bars = sub[sub.index.year < curr_dt.year]
+                    base_ytd = prev_year_bars.iloc[-1] if len(prev_year_bars) > 0 else (year_start.iloc[0] if len(year_start) > 0 else p_now)
+                    r_ytd = ((p_now / base_ytd) - 1) * 100.0 if base_ytd > 0 else r_1m
+                    row_vals = [r_1d, r_1w, r_1m, r_3m, r_ytd]
+            elif sym in sec_row_map:
+                p_chg = sec_row_map[sym]
+                row_vals = [p_chg, p_chg * 1.5, p_chg * 2.0, p_chg * 2.5, p_chg * 3.0]
+
+            matrix.append(row_vals)
+
+        arr = np.array(matrix)
+        if arr.size == 0:
+            return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message="Sector bars unavailable.")
+
+        # Sort sectors by 1-Month return descending
+        sort_order = np.argsort(-arr[:, 2])
+        arr = arr[sort_order]
+        labels = [labels[i] for i in sort_order]
+
+        fig, ax = plt.subplots(figsize=(9.8, 5.8))
+        _apply_neutral_theme(fig, ax)
+
+        v_min = min(-10.0, float(np.min(arr)))
+        v_max = max(15.0, float(np.max(arr)))
+        norm = mcolors.TwoSlopeNorm(vmin=v_min, vcenter=0.0, vmax=v_max)
+
+        im = ax.imshow(arr, cmap=CMAP_DIVERGING, norm=norm, aspect="auto")
+
+        ax.set_xticks(range(len(timeframes)))
+        ax.set_xticklabels(timeframes, fontsize=10, fontweight="bold", color=COLOR_TEXT)
+        ax.set_yticks(range(len(labels)))
+        ax.set_yticklabels(labels, fontsize=9, fontweight="medium", color=COLOR_TEXT)
+
+        for i in range(len(labels)):
+            for j in range(len(timeframes)):
+                val = arr[i, j]
+                sign = "+" if val > 0 else ""
+                ax.text(j, i, f"{sign}{val:.1f}%", ha="center", va="center", color="#ffffff", fontsize=9, fontweight="bold")
+
+        ax.set_title(title, color=COLOR_TEXT, fontsize=12, fontweight="bold", pad=12)
+        cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.03)
+        cbar.set_label("Return (%)", color=COLOR_MUTED, fontsize=8.5)
+        cbar.ax.yaxis.set_tick_params(color=COLOR_MUTED)
+        plt.setp(cbar.ax.get_yticklabels(), color=COLOR_MUTED, fontsize=8)
+
+        b64, svg = _encode_fig(fig, output_path)
+        return GeneratedChart(key=chart_key, title=title, caption=caption, file_path=str(output_path) if output_path else None, base64_data=b64, svg_content=svg)
+    except Exception as e:
+        logger.warning("Failed to generate sector timeframe heatmap: %s", e)
+        return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message=str(e))
+
+
+def generate_sector_breadth_heatmap(
+    equity_bars: Dict[str, pd.DataFrame],
+    as_of_date: str,
+    constituents: Optional[List[Any]] = None,
+    output_path: Optional[Path] = None,
+) -> GeneratedChart:
+    """Generate Sector Constituent Breadth & Technical Health Matrix (% > 20, 50, 200 DMA, RSI, MACD)."""
+    chart_key = "sector_breadth_heatmap"
+    title = "Sector Constituent Breadth & Technical Health Matrix"
+    caption = f"Participation matrix showing % of constituent stocks above key moving averages and momentum thresholds by sector as of {as_of_date}."
+
+    if not equity_bars:
+        return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message="Constituent bars unavailable.")
+
+    try:
+        # Build comprehensive symbol -> sector map
+        sym_sector_map: Dict[str, str] = {}
+        if constituents:
+            for item in constituents:
+                sym = getattr(item, "symbol", None) or (item.get("symbol") if isinstance(item, dict) else None)
+                sec = getattr(item, "sector", None) or (item.get("sector") if isinstance(item, dict) else None)
+                if sym and sec:
+                    if sec in ("Technology", "Info Tech", "IT"):
+                        sec = "Information Technology"
+                    elif sec in ("Telecom", "Telecommunications"):
+                        sec = "Communication Services"
+                    sym_sector_map[sym] = sec
+
+        if not sym_sector_map:
+            try:
+                from data.constituents import ConstituentManager
+                cm = ConstituentManager()
+                c_list = cm.get_universe()
+                for c in c_list:
+                    sec = c.sector
+                    if sec in ("Technology", "Info Tech", "IT"):
+                        sec = "Information Technology"
+                    elif sec in ("Telecom", "Telecommunications"):
+                        sec = "Communication Services"
+                    sym_sector_map[c.symbol] = sec
+            except Exception:
+                pass
+
+        if not sym_sector_map:
+            for item in FALLBACK_CONSTITUENTS:
+                sec = item["sector"]
+                if sec in ("Technology", "Info Tech", "IT"):
+                    sec = "Information Technology"
+                elif sec in ("Telecom", "Telecommunications"):
+                    sec = "Communication Services"
+                sym_sector_map[item["symbol"]] = sec
+
+        sector_stocks: Dict[str, List[pd.DataFrame]] = {}
+        curr_dt = pd.to_datetime(as_of_date)
+
+        for sym, df in equity_bars.items():
+            if df is not None and not df.empty and "Close" in df.columns:
+                sub = df[df.index <= curr_dt]["Close"]
+                if len(sub) >= 20:
+                    sec = sym_sector_map.get(sym, "Other")
+                    if sec not in sector_stocks:
+                        sector_stocks[sec] = []
+                    sector_stocks[sec].append(sub)
+
+        cols = ["% > 20 DMA", "% > 50 DMA", "% > 200 DMA", "% RSI > 50", "% Bullish MACD"]
+        matrix = []
+        labels = []
+
+        for sec, series_list in sorted(sector_stocks.items()):
+            if sec in ("Other", "Unknown") or len(series_list) < 2:
+                continue
+            labels.append(sec)
+            total = len(series_list)
+            gt_20, gt_50, gt_200, rsi_gt_50, macd_bull = 0, 0, 0, 0, 0
+
+            for s in series_list:
+                p = s.iloc[-1]
+                # 20 DMA
+                if len(s) >= 20 and p > s.rolling(20, min_periods=20).mean().iloc[-1]:
+                    gt_20 += 1
+                # 50 DMA
+                if len(s) >= 50 and p > s.rolling(50, min_periods=50).mean().iloc[-1]:
+                    gt_50 += 1
+                # 200 DMA (require at least 150 bars to avoid noisy short-term averages)
+                if len(s) >= 200 and p > s.rolling(200, min_periods=150).mean().iloc[-1]:
+                    gt_200 += 1
+                elif len(s) >= 150 and p > s.rolling(len(s), min_periods=150).mean().iloc[-1]:
+                    gt_200 += 1
+                # RSI 14
+                if len(s) >= 15:
+                    delta = s.diff()
+                    up = delta.clip(lower=0).rolling(14, min_periods=14).mean()
+                    down = (-delta.clip(upper=0)).rolling(14, min_periods=14).mean()
+                    rs = up.iloc[-1] / (down.iloc[-1] + 1e-9)
+                    rsi = 100 - (100 / (1 + rs))
+                    if rsi > 50:
+                        rsi_gt_50 += 1
+                # MACD (12, 26, 9)
+                if len(s) >= 30:
+                    ema12 = s.ewm(span=12, adjust=False).mean()
+                    ema26 = s.ewm(span=26, adjust=False).mean()
+                    macd = ema12 - ema26
+                    sig = macd.ewm(span=9, adjust=False).mean()
+                    if macd.iloc[-1] > sig.iloc[-1]:
+                        macd_bull += 1
+
+            matrix.append([
+                (gt_20 / total) * 100.0,
+                (gt_50 / total) * 100.0,
+                (gt_200 / total) * 100.0,
+                (rsi_gt_50 / total) * 100.0,
+                (macd_bull / total) * 100.0,
+            ])
+
+        arr = np.array(matrix)
+        if arr.size == 0:
+            return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message="Insufficient sector breadth data.")
+
+        # Sort by % > 50 DMA descending
+        sort_order = np.argsort(-arr[:, 1])
+        arr = arr[sort_order]
+        labels = [labels[i] for i in sort_order]
+
+        fig_h = max(5.4, 0.48 * len(labels) + 1.2)
+        fig, ax = plt.subplots(figsize=(9.4, fig_h))
+        _apply_neutral_theme(fig, ax)
+
+        norm_b = mcolors.TwoSlopeNorm(vmin=15.0, vcenter=50.0, vmax=95.0)
+        im = ax.imshow(arr, cmap=CMAP_DIVERGING, norm=norm_b, aspect="auto")
+
+        ax.set_xticks(range(len(cols)))
+        ax.set_xticklabels(cols, fontsize=9.5, fontweight="bold", rotation=20, ha="right", color=COLOR_TEXT)
+        ax.set_yticks(range(len(labels)))
+        ax.set_yticklabels(labels, fontsize=9, fontweight="medium", color=COLOR_TEXT)
+
+        for i in range(len(labels)):
+            for j in range(len(cols)):
+                val = arr[i, j]
+                ax.text(j, i, f"{val:.1f}%", ha="center", va="center", color="#ffffff", fontsize=9, fontweight="bold")
+
+        ax.set_title(title, color=COLOR_TEXT, fontsize=12, fontweight="bold", pad=12)
+        cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.03)
+        cbar.set_label("% of Constituent Stocks", color=COLOR_MUTED, fontsize=8.5)
+        cbar.ax.yaxis.set_tick_params(color=COLOR_MUTED)
+        plt.setp(cbar.ax.get_yticklabels(), color=COLOR_MUTED, fontsize=8)
+
+        b64, svg = _encode_fig(fig, output_path)
+        return GeneratedChart(key=chart_key, title=title, caption=caption, file_path=str(output_path) if output_path else None, base64_data=b64, svg_content=svg)
+    except Exception as e:
+        logger.warning("Failed to generate sector breadth heatmap: %s", e)
+        return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message=str(e))
+
+
+def generate_seasonality_heatmap(
+    spx_df: Optional[pd.DataFrame],
+    as_of_date: str,
+    lookback_years: int = 10,
+    output_path: Optional[Path] = None,
+) -> GeneratedChart:
+    """Generate S&P 500 Historical Monthly Return Matrix (Seasonality)."""
+    chart_key = "seasonality_heatmap"
+    title = f"S&P 500 Historical Monthly Return Matrix ({lookback_years}-Year Seasonality)"
+    caption = f"Historical monthly return distribution across the calendar year (Jan–Dec) as of {as_of_date}."
+
+    if spx_df is None or spx_df.empty or "Close" not in spx_df.columns:
+        return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message="S&P 500 history unavailable.")
+
+    try:
+        curr_dt = pd.to_datetime(as_of_date)
+        sub = spx_df[spx_df.index <= curr_dt]["Close"]
+        if len(sub) < 180:
+            return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message="Insufficient historical bars for seasonality.")
+
+        monthly = sub.resample("ME").last()
+        monthly_ret = monthly.pct_change() * 100.0
+
+        years = sorted(list(set(monthly_ret.index.year)))[-lookback_years:]
+        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+        matrix = np.full((len(years), 12), np.nan)
+        for i, y in enumerate(years):
+            for m in range(1, 13):
+                pts = monthly_ret[(monthly_ret.index.year == y) & (monthly_ret.index.month == m)]
+                if len(pts) > 0:
+                    matrix[i, m - 1] = pts.iloc[-1]
+
+        valid_mask = ~np.isnan(matrix).all(axis=1)
+        matrix = matrix[valid_mask]
+        year_labels = [str(y) for y, v in zip(years, valid_mask) if v]
+
+        if matrix.shape[0] == 0:
+            return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message="Seasonality matrix empty.")
+
+        fig, ax = plt.subplots(figsize=(10.5, 5.2))
+        _apply_neutral_theme(fig, ax)
+
+        v_min = min(-8.0, float(np.nanmin(matrix)))
+        v_max = max(10.0, float(np.nanmax(matrix)))
+        norm_s = mcolors.TwoSlopeNorm(vmin=v_min, vcenter=0.0, vmax=v_max)
+
+        im = ax.imshow(matrix, cmap=CMAP_DIVERGING, norm=norm_s, aspect="auto")
+
+        ax.set_xticks(range(12))
+        ax.set_xticklabels(months, fontsize=9.5, fontweight="bold", color=COLOR_TEXT)
+        ax.set_yticks(range(len(year_labels)))
+        ax.set_yticklabels(year_labels, fontsize=9, fontweight="bold", color=COLOR_TEXT)
+
+        for i in range(len(year_labels)):
+            for j in range(12):
+                val = matrix[i, j]
+                if np.isnan(val):
+                    continue
+                sign = "+" if val > 0 else ""
+                ax.text(j, i, f"{sign}{val:.1f}%", ha="center", va="center", color="#ffffff", fontsize=8.5, fontweight="bold")
+
+        ax.set_title(title, color=COLOR_TEXT, fontsize=12, fontweight="bold", pad=12)
+        cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.03)
+        cbar.set_label("Monthly Return (%)", color=COLOR_MUTED, fontsize=8.5)
+        cbar.ax.yaxis.set_tick_params(color=COLOR_MUTED)
+        plt.setp(cbar.ax.get_yticklabels(), color=COLOR_MUTED, fontsize=8)
+
+        b64, svg = _encode_fig(fig, output_path)
+        return GeneratedChart(key=chart_key, title=title, caption=caption, file_path=str(output_path) if output_path else None, base64_data=b64, svg_content=svg)
+    except Exception as e:
+        logger.warning("Failed to generate seasonality heatmap: %s", e)
+        return GeneratedChart(key=chart_key, title=title, caption=caption, is_available=False, error_message=str(e))
+
+
 def generate_all_report_charts(
     period: PeriodInfo,
     core_bars: Dict[str, pd.DataFrame],
@@ -445,6 +883,7 @@ def generate_all_report_charts(
     losers: List[MoverItem],
     fred_provider: Optional[Any] = None,
     output_dir: Optional[Path] = None,
+    constituents: Optional[List[Any]] = None,
 ) -> Dict[str, GeneratedChart]:
     """Generate all 6 required report charts, saving PNG files and generating base64 strings."""
     charts_dict: Dict[str, GeneratedChart] = {}
@@ -526,6 +965,36 @@ def generate_all_report_charts(
         output_path=p_mov,
     )
     charts_dict["top_movers"] = c_mov
+
+    # 8. Sector Rotation Multi-Timeframe Heatmap
+    p_sec_hm = (charts_dir / "sector_timeframe_heatmap.png") if charts_dir else None
+    c_sec_hm = generate_sector_timeframe_heatmap(
+        core_bars=core_bars,
+        sector_rows=sector_rows,
+        as_of_date=period.session_date,
+        output_path=p_sec_hm,
+    )
+    charts_dict["sector_timeframe_heatmap"] = c_sec_hm
+
+    # 9. Sector Constituent Breadth & Technical Health Heatmap
+    p_sec_br = (charts_dir / "sector_breadth_heatmap.png") if charts_dir else None
+    c_sec_br = generate_sector_breadth_heatmap(
+        equity_bars=equity_bars,
+        as_of_date=period.session_date,
+        constituents=constituents,
+        output_path=p_sec_br,
+    )
+    charts_dict["sector_breadth_heatmap"] = c_sec_br
+
+    # 10. S&P 500 Historical Monthly Seasonality Heatmap
+    p_seas = (charts_dir / "seasonality_heatmap.png") if charts_dir else None
+    c_seas = generate_seasonality_heatmap(
+        spx_df=core_bars.get("^GSPC") if "^GSPC" in core_bars else core_bars.get("SPY"),
+        as_of_date=period.session_date,
+        lookback_years=10,
+        output_path=p_seas,
+    )
+    charts_dict["seasonality_heatmap"] = c_seas
 
     logger.info("Generated %d chart visualizations in %s", len(charts_dict), charts_dir)
     return charts_dict

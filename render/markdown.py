@@ -439,6 +439,9 @@ def render_markdown(
                         lines.append("")
 
             if charts:
+                sec_hm = _fmt_chart_md(charts.get("sector_timeframe_heatmap"))
+                if sec_hm:
+                    lines.append(sec_hm)
                 sec_c = _fmt_chart_md(charts.get("sector_performance"))
                 if sec_c:
                     lines.append(sec_c)
@@ -496,6 +499,9 @@ def render_markdown(
 
             lines.append("> *Note: Market breadth calculations use the current S&P 500 constituent roster (subject to survivorship bias for historical comparisons).*\n")
             if charts:
+                sec_br = _fmt_chart_md(charts.get("sector_breadth_heatmap"))
+                if sec_br:
+                    lines.append(sec_br)
                 br_c = _fmt_chart_md(charts.get("breadth_history"))
                 if br_c:
                     lines.append(br_c)
@@ -863,6 +869,11 @@ def render_markdown(
                 lines.append("#### Cross-Market Macro Alignment & Execution Posture")
                 lines.append(f"- **Alignment:** Technical Trend is **{cd.verdict.upper()}** ({cd.normalized_score:+.2f}), operating within a **{intel.summary_badge}** regime. Credit risk is `{intel.credit.regime}` ({intel.credit.spread_bps:.0f} bps OAS) while volatility term structure reflects `{intel.vol_term.structure}` (ratio {intel.vol_term.ratio:.3f}). Tactical sector rotation shows {intel.rotation.rotation_summary} (see [Section 17: Macro & Economic Events](#17-macro--economic-events) for sector momentum details).")
                 lines.append("")
+
+            if charts and charts.get("seasonality_heatmap"):
+                seas_c = _fmt_chart_md(charts.get("seasonality_heatmap"))
+                if seas_c:
+                    lines.append(seas_c)
 
         # Section: S&P 500 Valuation vs. Rates & ERP (Stage 3 Task 3.1 & Stage 4 Task 4.2)
         elif isinstance(sec.data, ValuationData):

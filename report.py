@@ -221,6 +221,13 @@ def generate_market_report(
     logger.info("Fetching bar data for %d core macro/sector symbols", len(core_tickers))
     core_bars = provider.get_history(core_tickers, start_date=history_start, end_date=period_info.session_date)
 
+    # Fetch 11-year extended history for S&P 500 benchmark to power the 10-year monthly seasonality heatmap
+    seasonality_start = (session_dt - pd.Timedelta(days=4100)).strftime("%Y-%m-%d")
+    spx_extended = provider.get_history(["^GSPC", "SPY"], start_date=seasonality_start, end_date=period_info.session_date)
+    for sym in ["^GSPC", "SPY"]:
+        if sym in spx_extended and not spx_extended[sym].empty:
+            core_bars[sym] = spx_extended[sym]
+
     logger.info("Fetching bar data for %d equities in universe", len(all_equity_tickers))
     equity_bars = provider.get_history(all_equity_tickers, start_date=history_start, end_date=period_info.session_date)
 
@@ -772,6 +779,7 @@ def generate_market_report(
             losers=period_movers.losers if period_movers else [],
             fred_provider=fred_provider,
             output_dir=target_dir,
+            constituents=constituents,
         )
 
     # 8. Render reports with charts
