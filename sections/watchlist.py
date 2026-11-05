@@ -66,7 +66,7 @@ class WatchlistItem:
     rs_vs_spy: Optional[float] = None
     next_earnings_date: str = "none within 30d"
     sector_breadth_status: str = "n/a"
-    long_permitted: str = "BLOCKED (Gate Defensive)"
+    long_permitted: str = "INACTIVE (Gate Defensive)"
     readiness: str = "Not ready"
     is_available: bool = True
     notes: str = ""
@@ -135,12 +135,12 @@ def load_watchlist_tickers(csv_path: Union[str, Path] = "watchlist.csv") -> List
 
 
 def resolve_long_permitted(gate_posture: Union[str, Any]) -> str:
-    """Map Swing-Trade Exposure Gate posture to execution directive string.
+    """Map Swing-Trade Exposure Gate posture to model filter status string.
 
     Rules:
-      - If Gate posture is DEFENSIVE -> "BLOCKED (Gate Defensive)"
-      - If Gate posture is CAUTIOUS / SELECTIVE / REDUCED -> "SELECTIVE (Half Size)"
-      - If Gate posture is OPEN / FULL -> "PERMITTED"
+      - If Gate posture is DEFENSIVE -> "INACTIVE (Gate Defensive)"
+      - If Gate posture is CAUTIOUS / SELECTIVE / REDUCED -> "SELECTIVE (Conservative)"
+      - If Gate posture is OPEN / FULL -> "ACTIVE (Favorable Trend)"
     """
     posture_str = ""
     if isinstance(gate_posture, str):
@@ -152,17 +152,17 @@ def resolve_long_permitted(gate_posture: Union[str, Any]) -> str:
 
     p_clean = posture_str.strip().upper()
 
-    if any(k in p_clean for k in ("DEFENSIVE", "BLOCKED", "CLOSED", "SHUT")):
-        return "BLOCKED (Gate Defensive)"
+    if any(k in p_clean for k in ("DEFENSIVE", "BLOCKED", "CLOSED", "SHUT", "INACTIVE")):
+        return "INACTIVE (Gate Defensive)"
     elif any(k in p_clean for k in ("CAUTIOUS", "SELECTIVE", "REDUCED", "HALF")):
-        return "SELECTIVE (Half Size)"
-    elif any(k in p_clean for k in ("OPEN", "FULL", "PERMITTED")):
-        return "PERMITTED"
+        return "SELECTIVE (Conservative)"
+    elif any(k in p_clean for k in ("OPEN", "FULL", "PERMITTED", "ACTIVE")):
+        return "ACTIVE (Favorable Trend)"
     else:
         # Default safety fallback
         if "DEF" in p_clean:
-            return "BLOCKED (Gate Defensive)"
-        return "SELECTIVE (Half Size)"
+            return "INACTIVE (Gate Defensive)"
+        return "SELECTIVE (Conservative)"
 
 
 def compute_atr_14(df: pd.DataFrame) -> Optional[float]:
@@ -573,7 +573,7 @@ def build_watchlist_section(
         # b. Sector net new highs > 0 (or market net new highs > 0)
         # c. Stock price above 50-DMA
         # d. Stock price within 10% of 52-week high
-        is_defensive_gate = any(k in p_clean for k in ("DEFENSIVE", "BLOCKED", "CLOSED", "SHUT"))
+        is_defensive_gate = any(k in p_clean for k in ("DEFENSIVE", "BLOCKED", "CLOSED", "SHUT", "INACTIVE"))
         is_exception = False
         if is_defensive_gate:
             cond_a = (sec_breadth_num is not None and sec_breadth_num >= 70.0)
@@ -616,9 +616,9 @@ def build_watchlist_section(
 
     # 9. Compute aggregate summary metrics
     total_c = len(items)
-    blocked_c = sum(1 for it in items if "BLOCKED" in it.long_permitted)
+    blocked_c = sum(1 for it in items if any(k in it.long_permitted for k in ("BLOCKED", "INACTIVE", "Inactive")))
     selective_c = sum(1 for it in items if "SELECTIVE" in it.long_permitted)
-    permitted_c = sum(1 for it in items if "PERMITTED" in it.long_permitted)
+    permitted_c = sum(1 for it in items if "PERMITTED" in it.long_permitted or it.long_permitted.startswith("ACTIVE"))
     exception_c = sum(1 for it in items if "Exception candidate" in it.long_permitted)
 
     data = WatchlistData(

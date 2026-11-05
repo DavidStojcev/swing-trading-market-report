@@ -128,28 +128,28 @@ def evaluate_swing_gate(
             posture = "DEFENSIVE"
             badge_class = "badge-red"
             triggered_rule = f"Gate Rule 4 (Defensive): Dual benchmark break of 50-DMA (SPY {spy_50_dist:+.2f}%, QQQ {qqq_50_dist:+.2f}%) or elevated risk regime."
-            guidance = "Pause new long swing setups. Focus on capital preservation, tighten trailing stops on existing runners, and await benchmark reclaim of moving averages."
+            guidance = "Quantitative model criteria indicate capital preservation under elevated distribution risk. Benchmark averages trade below key moving average thresholds; new breakout setups remain inactive."
 
         # SELECTIVE: Divergence with one index below 50-DMA, VIX 22-26, or breadth 40-50%
         elif (not spy_50_pass or not qqq_50_pass) or vix_current >= 22.0 or p50 < 50.0:
             posture = "SELECTIVE"
             badge_class = "badge-yellow"
             triggered_rule = f"Gate Rule 3 (Selective): Benchmark divergence or breakdown below 50-DMA (SPY {spy_50_dist:+.2f}%, QQQ {qqq_50_dist:+.2f}%)."
-            guidance = "Restrict new entries strictly to leading relative-strength themes showing independent accumulation. Reduce position sizing by 50% and honor initial stops rigorously."
+            guidance = "Quantitative model criteria reflect selective exposure. Technical parameters prioritize leading relative-strength themes showing independent accumulation under conservative risk baselines."
 
         # REDUCED: Both above 50-DMA, but one below 20-EMA or VIX 19.5-22.0
         elif (not spy_20_pass or not qqq_20_pass) or vix_current >= 19.5:
             posture = "REDUCED"
             badge_class = "badge-primary"
             triggered_rule = f"Gate Rule 2 (Reduced): Benchmark pullback below 20-EMA with 50-DMA support intact (SPY {spy_20_dist:+.2f}%, QQQ {qqq_20_dist:+.2f}%)."
-            guidance = "Deploy capital selectively on A+ pullbacks to confirmed support. Maintain disciplined risk budgets (0.50R to 0.75R risk per idea)."
+            guidance = "Quantitative model criteria reflect measured exposure. Technical parameters identify constructive pullbacks to primary moving average support while broader indexes digest recent advances."
 
         # FULL: Both above 20-EMA & 50-DMA, VIX < 19.5, Breadth >= 50%
         else:
             posture = "FULL"
             badge_class = "badge-green"
             triggered_rule = f"Gate Rule 1 (Full): SPY and QQQ holding above 20-EMA and 50-DMA with low volatility and supportive breadth."
-            guidance = "Full offensive swing posture permitted (1.0R risk). Focus on high-momentum breakouts and primary support pullbacks across leading industry groups."
+            guidance = "Quantitative model criteria reflect broad market expansion. Favorable technical momentum with SPY and QQQ holding above primary moving averages and low implied volatility."
 
         # 6. Event-Risk Overlay (Stage 2: 2.6)
         # Within configurable window (default: 3 trading days) before HIGH-impact event,
@@ -194,25 +194,25 @@ def evaluate_swing_gate(
                 # Apply T10: if already at the most conservative tier, state "no change (already Defensive)"
                 overlay_rule = f"Event-Risk Overlay: no change (already Defensive; upcoming HIGH event '{ev_obj.title}' on {ev_obj.date})"
                 triggered_rule = f"{triggered_rule} [{overlay_rule}]."
-                guidance = f"Upcoming catalyst risk: monitor '{ev_obj.title}' on {ev_obj.date}. " + guidance
+                guidance = f"Upcoming macro catalyst: '{ev_obj.title}' on {ev_obj.date}. " + guidance
             elif posture == "FULL":
                 posture = "REDUCED"
                 badge_class = "badge-primary"
                 overlay_rule = f"Event-Risk Overlay: Capped 1-tier more conservative (FULL -> REDUCED) ahead of HIGH-impact catalyst '{ev_obj.title}' on {ev_obj.date} ({b_days} session{'s' if b_days > 1 else ''} away)"
                 triggered_rule = f"{triggered_rule} [{overlay_rule}]."
-                guidance = f"Upcoming catalyst risk: monitor '{ev_obj.title}' on {ev_obj.date}. " + guidance
+                guidance = f"Upcoming macro catalyst: '{ev_obj.title}' on {ev_obj.date}. " + guidance
             elif posture == "REDUCED":
                 posture = "SELECTIVE"
                 badge_class = "badge-yellow"
                 overlay_rule = f"Event-Risk Overlay: Capped 1-tier more conservative (REDUCED -> SELECTIVE) ahead of HIGH-impact catalyst '{ev_obj.title}' on {ev_obj.date} ({b_days} session{'s' if b_days > 1 else ''} away)"
                 triggered_rule = f"{triggered_rule} [{overlay_rule}]."
-                guidance = f"Upcoming catalyst risk: monitor '{ev_obj.title}' on {ev_obj.date}. " + guidance
+                guidance = f"Upcoming macro catalyst: '{ev_obj.title}' on {ev_obj.date}. " + guidance
             elif posture == "SELECTIVE":
                 posture = "DEFENSIVE"
                 badge_class = "badge-red"
                 overlay_rule = f"Event-Risk Overlay: Capped 1-tier more conservative (SELECTIVE -> DEFENSIVE) ahead of HIGH-impact catalyst '{ev_obj.title}' on {ev_obj.date} ({b_days} session{'s' if b_days > 1 else ''} away)"
                 triggered_rule = f"{triggered_rule} [{overlay_rule}]."
-                guidance = f"Upcoming catalyst risk: monitor '{ev_obj.title}' on {ev_obj.date}. " + guidance
+                guidance = f"Upcoming macro catalyst: '{ev_obj.title}' on {ev_obj.date}. " + guidance
 
         data = SwingGateData(
             as_of_date=as_of_date,
@@ -244,7 +244,7 @@ def evaluate_swing_gate(
 
         return SectionResult(
             section_num=2,
-            title="Swing-Trade Market Gate & Execution Posture",
+            title="Swing-Trade Market Gate & Exposure Posture",
             status="available",
             data=data,
         )
@@ -253,7 +253,7 @@ def evaluate_swing_gate(
         logger.error("Failed evaluating swing gate: %s", e)
         return SectionResult(
             section_num=2,
-            title="Swing-Trade Market Gate & Execution Posture",
+            title="Swing-Trade Market Gate & Exposure Posture",
             status="unavailable",
             error_message=f"Swing gate evaluation error: {e}",
         )

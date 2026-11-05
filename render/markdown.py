@@ -109,7 +109,7 @@ def render_markdown(
             sg: SwingGateData = sec.data
             lines.append(f"### Swing-Trade Exposure Gate: **{sg.posture}**")
             lines.append(f"> 🎯 **Triggered Rule:** {sg.triggered_rule}\n")
-            lines.append(f"> 💡 **Execution Guidance:** {sg.execution_guidance}\n")
+            lines.append(f"> 🧭 **Model Regime Context:** {sg.execution_guidance}\n")
             if period.report_type == "monthly":
                 lines.append("> 💡 **Monthly Strategic Allocation Note:** The Swing-Trade Exposure Gate provides tactical weekly guardrails. For long-term multi-asset allocators, macro regime signals and credit spreads (Section 17) take precedence over short-term swing stops.\n")
             lines.append("#### Technical Benchmark Moving Average Gates")
@@ -766,11 +766,11 @@ def render_markdown(
             lines.append("### Tactical Watchlist Panel")
             src_note = f" &bull; {wl.source_label}" if getattr(wl, "source_label", "") else ""
             exc_note = f", {wl.exception_count} Exception Candidates" if getattr(wl, "exception_count", 0) > 0 else ""
-            lines.append(f"> 📋 **Focus Candidates:** Tracking {wl.total_count} focus large-cap tickers{src_note} | **Gate Posture:** `{wl.gate_posture}` ({wl.long_permitted_default})\n> ({wl.blocked_count} Blocked, {wl.selective_count} Selective, {wl.permitted_count} Permitted{exc_note})\n")
+            lines.append(f"> 📋 **Focus Candidates:** Tracking {wl.total_count} focus large-cap tickers{src_note} | **Gate Posture:** `{wl.gate_posture}` ({wl.long_permitted_default})\n> ({wl.blocked_count} Inactive, {wl.selective_count} Selective, {wl.permitted_count} Active{exc_note})\n")
             if period.report_type == "monthly":
                 lines.append("> 💡 **Strategic Watchlist Context:** For monthly asset allocation, prioritize candidates with sustained 3-month RS outperformance maintaining position above rising 50-day moving averages.\n")
             if wl.items:
-                lines.append("| Ticker | Company Name | Sector | Close | 20-DMA Δ | 50-DMA Δ | 14D ATR% | RS vs SPY (3M) | Sector Breadth | Readiness (Gate Open) | Next Earnings | Long Directive |")
+                lines.append("| Ticker | Company Name | Sector | Close | 20-DMA Δ | 50-DMA Δ | 14D ATR% | RS vs SPY (3M) | Sector Breadth | Readiness (Gate Open) | Next Earnings | Filter Status |")
                 lines.append("| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |")
                 for it in wl.items:
                     c_str = f"\\${it.close:,.2f}" if it.close > 0 else "n/a"

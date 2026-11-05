@@ -25,14 +25,14 @@ def main():
     assert len(tickers) >= 15, f"Expected at least 15 tickers, got {len(tickers)}"
 
     # 2. Test Long Gate Posture Mapping
-    print("\n2. Verifying Long Directive Derivation:")
+    print("\n2. Verifying Model Filter Status Derivation:")
     posture_checks = [
-        ("DEFENSIVE", "BLOCKED (Gate Defensive)"),
-        ("CAUTIOUS", "SELECTIVE (Half Size)"),
-        ("OPEN", "PERMITTED"),
-        ("REDUCED", "SELECTIVE (Half Size)"),
-        ("SELECTIVE", "SELECTIVE (Half Size)"),
-        ("FULL", "PERMITTED"),
+        ("DEFENSIVE", "INACTIVE (Gate Defensive)"),
+        ("CAUTIOUS", "SELECTIVE (Conservative)"),
+        ("OPEN", "ACTIVE (Favorable Trend)"),
+        ("REDUCED", "SELECTIVE (Conservative)"),
+        ("SELECTIVE", "SELECTIVE (Conservative)"),
+        ("FULL", "ACTIVE (Favorable Trend)"),
     ]
     for posture, expected in posture_checks:
         actual = resolve_long_permitted(posture)
@@ -41,7 +41,7 @@ def main():
 
     # 3. Test Missing File Graceful Degradation
     print("\n3. Testing Graceful Handling of Missing File:")
-    res_missing = build_watchlist_section("non_existent_watchlist.csv")
+    res_missing = build_watchlist_section("non_existent_watchlist.csv", fallback_to_default=False)
     assert not res_missing.is_available, "Missing file should yield unavailable status"
     assert res_missing.status == "unavailable"
     print(f"   Status: '{res_missing.status}' | Error: '{res_missing.error_message}' [PASS]")
@@ -98,7 +98,7 @@ def main():
     assert aapl.dist_50dma_pct is not None
     assert aapl.atr_pct is not None
     assert aapl.rs_vs_spy is not None
-    assert aapl.long_permitted == "BLOCKED (Gate Defensive)"
+    assert aapl.long_permitted == "INACTIVE (Gate Defensive)"
 
     print("\nALL WATCHLIST TESTS PASSED SUCCESSFULLY.")
 

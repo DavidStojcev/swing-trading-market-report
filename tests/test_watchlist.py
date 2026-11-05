@@ -108,19 +108,19 @@ def test_missing_or_empty_watchlist_file_handling(tmp_path: Path):
 
 
 def test_gate_posture_long_permitted_derivation():
-    """Verify gate posture string mappings for long directives."""
+    """Verify gate posture string mappings for model filter status."""
     # Defensive
-    assert resolve_long_permitted("DEFENSIVE") == "BLOCKED (Gate Defensive)"
-    assert resolve_long_permitted("Gate Defensive") == "BLOCKED (Gate Defensive)"
+    assert resolve_long_permitted("DEFENSIVE") == "INACTIVE (Gate Defensive)"
+    assert resolve_long_permitted("Gate Defensive") == "INACTIVE (Gate Defensive)"
 
     # Cautious / Selective / Reduced
-    assert resolve_long_permitted("CAUTIOUS") == "SELECTIVE (Half Size)"
-    assert resolve_long_permitted("SELECTIVE") == "SELECTIVE (Half Size)"
-    assert resolve_long_permitted("REDUCED") == "SELECTIVE (Half Size)"
+    assert resolve_long_permitted("CAUTIOUS") == "SELECTIVE (Conservative)"
+    assert resolve_long_permitted("SELECTIVE") == "SELECTIVE (Conservative)"
+    assert resolve_long_permitted("REDUCED") == "SELECTIVE (Conservative)"
 
     # Open / Full
-    assert resolve_long_permitted("OPEN") == "PERMITTED"
-    assert resolve_long_permitted("FULL") == "PERMITTED"
+    assert resolve_long_permitted("OPEN") == "ACTIVE (Favorable Trend)"
+    assert resolve_long_permitted("FULL") == "ACTIVE (Favorable Trend)"
 
     # SwingGateData object
     sg = SwingGateData(
@@ -148,9 +148,9 @@ def test_gate_posture_long_permitted_derivation():
         breadth_pct_above_50dma=38.0,
         breadth_ad_state="Negative",
         net_new_highs=-12,
-        execution_guidance="No new longs.",
+        execution_guidance="Quantitative model criteria reflect defensive posture.",
     )
-    assert resolve_long_permitted(sg) == "BLOCKED (Gate Defensive)"
+    assert resolve_long_permitted(sg) == "INACTIVE (Gate Defensive)"
 
 
 def test_compute_atr_14(sample_stock_df):
@@ -212,7 +212,7 @@ def test_build_watchlist_section_full(tmp_path: Path, sample_stock_df, sample_sp
     data: WatchlistData = res.data
     assert data.total_count == 3
     assert data.gate_posture == "DEFENSIVE"
-    assert data.long_permitted_default == "BLOCKED (Gate Defensive)"
+    assert data.long_permitted_default == "INACTIVE (Gate Defensive)"
     assert data.blocked_count == 3
 
     # Check AAPL
@@ -226,7 +226,7 @@ def test_build_watchlist_section_full(tmp_path: Path, sample_stock_df, sample_sp
     assert aapl_item.rs_vs_spy is not None
     assert aapl_item.next_earnings_date == "2026-11-02"
     assert "68.5% > 50-DMA" in aapl_item.sector_breadth_status
-    assert aapl_item.long_permitted == "BLOCKED (Gate Defensive)"
+    assert aapl_item.long_permitted == "INACTIVE (Gate Defensive)"
 
 
 def test_root_default_watchlist_csv():
@@ -259,7 +259,7 @@ def test_watchlist_rendering_markdown_and_html(sample_stock_df, sample_spy_df):
     md = render_markdown(period=period, sections=sections)
     assert "Tactical Watchlist Panel" in md
     assert "Focus Candidates:" in md
-    assert "SELECTIVE (Half Size)" in md
+    assert "SELECTIVE (Conservative)" in md
 
     # Check for unescaped dollar signs
     lines = md.split("\n")

@@ -634,12 +634,12 @@ def render_html(
             <details class="methodology-note" style="margin-top: 16px;">
                 <summary>ℹ️ How the Swing-Trade Posture is determined</summary>
                 <div class="methodology-content">
-                    <p>The Swing-Trade Regime Gate evaluates benchmark index moving averages, implied volatility, and market breadth to establish capital deployment guidelines identical to the Apex scanner:</p>
+                    <p>The Swing-Trade Regime Gate evaluates benchmark index moving averages, implied volatility, and market breadth to establish systematic quantitative posture thresholds:</p>
                     <ul style="padding-left: 18px; margin-top: 6px; display: flex; flex-direction: column; gap: 4px;">
-                        <li><strong>FULL:</strong> SPY &amp; QQQ both above rising 20-EMA, VIX &lt; 20.0 in contango, and &gt; 50% of stocks &gt; 50-DMA. Full risk budget authorized.</li>
-                        <li><strong>REDUCED:</strong> Either index below 20-EMA or VIX in 20.0–25.0 cautious zone. Halve position sizing (50%) and raise cash.</li>
-                        <li><strong>SELECTIVE:</strong> VIX &gt; 25.0, breadth &lt; 40%, or key moving average divergences. Only take top-tier setups with tight stops.</li>
-                        <li><strong>DEFENSIVE:</strong> Both indices below 50-DMA or acute systemic distress. No new swing-trade buying permitted; prioritize capital preservation.</li>
+                        <li><strong>FULL:</strong> SPY &amp; QQQ both above rising 20-EMA, VIX &lt; 20.0 in contango, and &gt; 50% of stocks &gt; 50-DMA. Favorable broad-market expansion environment.</li>
+                        <li><strong>REDUCED:</strong> Either index below 20-EMA or VIX in 20.0–25.0 cautious zone. Measured exposure profile under consolidating benchmark averages.</li>
+                        <li><strong>SELECTIVE:</strong> VIX &gt; 25.0, breadth &lt; 40%, or key moving average divergences. Restrictive exposure profile favoring relative strength divergence.</li>
+                        <li><strong>DEFENSIVE:</strong> Both indices below 50-DMA or acute systemic distress. High-risk distribution regime with benchmark moving averages broken.</li>
                     </ul>
                 </div>
             </details>
@@ -2259,15 +2259,15 @@ def render_html(
                 else:
                     readiness_badge = '<span class="badge badge-neutral" style="color: var(--text-muted); font-size: 11px;">Not ready</span>'
 
-                # Long directive badge
+                # Technical filter badge
                 if "Exception candidate" in it.long_permitted:
                     dir_badge = '<span class="badge badge-yellow font-bold">Exception candidate (gate Defensive)</span>'
-                elif "BLOCKED" in it.long_permitted:
-                    dir_badge = '<span class="badge badge-red font-bold">BLOCKED</span>'
+                elif "BLOCKED" in it.long_permitted or "INACTIVE" in it.long_permitted:
+                    dir_badge = '<span class="badge badge-red font-bold">INACTIVE</span>'
                 elif "SELECTIVE" in it.long_permitted:
                     dir_badge = '<span class="badge badge-yellow font-bold">SELECTIVE</span>'
                 else:
-                    dir_badge = '<span class="badge badge-green font-bold">PERMITTED</span>'
+                    dir_badge = '<span class="badge badge-green font-bold">ACTIVE</span>'
 
                 if it.next_earnings_date in ("none within 30d", "n/a (source unavailable)", "n/a"):
                     earn_badge = f'<span class="text-muted font-mono" style="font-size: 12px;">{it.next_earnings_date}</span>'
@@ -2297,8 +2297,8 @@ def render_html(
             body_html.append(f"""
             <div class="note-box" style="margin-bottom: 16px;">
                 <strong>Tactical Focus Universe:</strong> Tracking {wl.total_count} focus large-cap tickers{src_note}.<br>
-                Market Gate Posture: <strong>{wl.gate_posture}</strong> &bull; Long Directive: <strong>{wl.long_permitted_default}</strong>
-                ({wl.blocked_count} Blocked, {wl.selective_count} Selective, {wl.permitted_count} Permitted{exc_note}).
+                Market Gate Posture: <strong>{wl.gate_posture}</strong> &bull; Filter Status: <strong>{wl.long_permitted_default}</strong>
+                ({wl.blocked_count} Inactive, {wl.selective_count} Selective, {wl.permitted_count} Active{exc_note}).
                 {monthly_wl_note}
             </div>
             <div class="table-container">
@@ -2316,7 +2316,7 @@ def render_html(
                             <th class="text-center">Sector Breadth (&gt;50-DMA)</th>
                             <th class="text-center">Readiness (Gate Open)</th>
                             <th class="text-center">Next Earnings</th>
-                            <th class="text-center">Long Directive</th>
+                            <th class="text-center">Filter Status</th>
                         </tr>
                     </thead>
                     <tbody>{''.join(wl_rows) if wl_rows else '<tr><td colspan="12" class="text-center text-muted">No watchlist focus items available.</td></tr>'}</tbody>
